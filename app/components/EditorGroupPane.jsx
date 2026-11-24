@@ -36,6 +36,7 @@ export default function EditorGroupPane({
   fontSize,
   tabSize,
   wordWrap,
+  showMinimap = true,
   typingFullMobile,
   onFocusGroup,
   onSelectTab,
@@ -275,6 +276,7 @@ export default function EditorGroupPane({
               fontSize={fontSize}
               tabSize={tabSize}
               wordWrap={wordWrap}
+              showMinimap={showMinimap}
               onCursorChange={(c) => onCursorChange(group.id, c)}
               onFocusChange={(focused) => onEditorFocusChange(group.id, focused)}
               editorRefOut={localEditorRef}

@@ -118,6 +118,7 @@ export default function CodeLabIDE() {
     showPreview: true,
     showDock: false,
     showMobileBar: false,
+    showMinimap: true,
   });
 
   const [isMobile, setIsMobile] = useState(false);
@@ -1254,6 +1255,12 @@ export default function CodeLabIDE() {
         action: () => setPrefs((p) => ({ ...p, wordWrap: !p.wordWrap })),
       },
       {
+        id: 'minimap',
+        label: prefs.showMinimap !== false ? 'إخفاء الخريطة المصغرة (Minimap)' : 'إظهار الخريطة المصغرة (Minimap)',
+        shortcut: '',
+        action: () => setPrefs((p) => ({ ...p, showMinimap: p.showMinimap === false })),
+      },
+      {
         id: 'theme',
         label: prefs.theme === 'dark' ? 'التبديل إلى الوضع الفاتح' : 'التبديل إلى الوضع الداكن',
         shortcut: '',
@@ -1288,7 +1295,7 @@ export default function CodeLabIDE() {
       { id: 'shortcuts', label: 'عرض اختصارات لوحة المفاتيح', shortcut: '', action: () => setShortcutsOpen(true) },
       { id: 'review', label: 'تقرير تقييم وفحص جودة الكود (Code Review)', shortcut: '', action: () => setReviewOpen(true) },
     ],
-    [doRun, focusMode, handleFormat, prefs.showExplorer, prefs.showDock, prefs.showPreview, prefs.showMobileBar, prefs.wordWrap, prefs.theme, toggleExplorer, toggleDock, togglePreview, handleSplitGroup, handleToggleSplitDirection, handleCloseGroup, activeGroupId, editorGroups.length, splitDirection, setReviewOpen, setQuickOpenOpen]
+    [doRun, focusMode, handleFormat, prefs.showExplorer, prefs.showDock, prefs.showPreview, prefs.showMobileBar, prefs.wordWrap, prefs.showMinimap, prefs.theme, toggleExplorer, toggleDock, togglePreview, handleSplitGroup, handleToggleSplitDirection, handleCloseGroup, activeGroupId, editorGroups.length, splitDirection, setReviewOpen, setQuickOpenOpen]
   );
 
   const typingFullMobile = isMobile && editorFocused;
@@ -1657,6 +1664,18 @@ export default function CodeLabIDE() {
 
                   <button
                     type="button"
+                    onClick={() => setPrefs((p) => ({ ...p, showMinimap: p.showMinimap === false }))}
+                    className="w-full flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Layers className="w-3.5 h-3.5 text-slate-400" />
+                      <span>الخريطة المصغرة (Minimap)</span>
+                    </span>
+                    {prefs.showMinimap !== false && <Check className="w-3.5 h-3.5 text-sky-500" />}
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => setPrefs((p) => ({ ...p, showMobileBar: !p.showMobileBar }))}
                     className="w-full flex items-center justify-between px-2 py-1.5 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200"
                   >
@@ -1902,6 +1921,7 @@ export default function CodeLabIDE() {
                       fontSize={prefs.fontSize}
                       tabSize={prefs.tabSize}
                       wordWrap={prefs.wordWrap}
+                      showMinimap={prefs.showMinimap !== false}
                       typingFullMobile={typingFullMobile}
                       onFocusGroup={setActiveGroupId}
                       onSelectTab={handleSelectTab}

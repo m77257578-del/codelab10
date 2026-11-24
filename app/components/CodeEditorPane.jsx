@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
+import CodeMinimap from './CodeMinimap';
 import { getMobileBarConfig } from '../lib/completions';
 import CodeMirror from '@uiw/react-codemirror';
 import { EditorState, RangeSetBuilder } from '@codemirror/state';
@@ -298,14 +299,19 @@ export default function CodeEditorPane({
   fontSize,
   tabSize,
   wordWrap,
+  showMinimap = true,
   onCursorChange,
   onFocusChange,
   editorRefOut,
   onRunShortcut,
 }) {
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [minimapViewport, setMinimapViewport] = useState({ firstVisibleLine: 1, lastVisibleLine: 30 });
+  const [activeLine, setActiveLine] = useState(1);
   const config = useMemo(() => getMobileBarConfig(lang), [lang]);
   const viewRef = useRef(null);
+  const scrollCleanupRef = useRef(null);
+  const rafRef = useRef(null);
   const filesRef = useRef(files);
   filesRef.current = files;
   const cursorCbRef = useRef(onCursorChange);
@@ -314,6 +320,39 @@ export default function CodeEditorPane({
   focusCbRef.current = onFocusChange;
   const runCbRef = useRef(onRunShortcut);
   runCbRef.current = onRunShortcut;
+
+  const minimapDiagnostics = useMemo(
+    () => diagnose(typeof value === 'string' ? value : '', lang),
+    [value, lang]
+  );
+
+  const scheduleViewportSync = useCallback((view) => {
+    if (!view || typeof requestAnimationFrame === 'undefined') return;
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      const scrollDOM = view.scrollDOM;
+      if (!scrollDOM) return;
+      const doc = view.state.doc;
+      const topBlock = view.lineBlockAtHeight(Math.max(0, scrollDOM.scrollTop));
+      const bottomY = Math.max(scrollDOM.scrollTop + 1, scrollDOM.scrollTop + scrollDOM.clientHeight - 4);
+      const bottomBlock = view.lineBlockAtHeight(bottomY);
+      const firstVisibleLine = doc.lineAt(topBlock.from).number;
+      const lastVisibleLine = doc.lineAt(bottomBlock.to).number;
+      setMinimapViewport((prev) =>
+        prev.firstVisibleLine === firstVisibleLine && prev.lastVisibleLine === lastVisibleLine
+          ? prev
+          : { firstVisibleLine, lastVisibleLine }
+      );
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      scrollCleanupRef.current?.();
+    };
+  }, []);
 
   const extensions = useMemo(() => {
     const langExt = getLangExtension(lang);
@@ -392,12 +431,16 @@ export default function CodeEditorPane({
           const head = update.state.selection.main.head;
           const line = update.state.doc.lineAt(head);
           const selected = Math.abs(update.state.selection.main.to - update.state.selection.main.from);
+          setActiveLine(line.number);
           cursorCbRef.current?.({
             line: line.number,
             col: head - line.from + 1,
             selected,
             lines: update.state.doc.lines,
           });
+        }
+        if (update.docChanged || update.viewportChanged || update.geometryChanged) {
+          scheduleViewportSync(update.view);
         }
       }),
       EditorView.theme({
@@ -410,7 +453,7 @@ export default function CodeEditorPane({
       exts.push(EditorView.lineWrapping);
     }
     return exts;
-  }, [lang, theme, fontSize, tabSize, wordWrap]);
+  }, [lang, theme, fontSize, tabSize, wordWrap, scheduleViewportSync]);
 
   useEffect(() => {
     if (editorRefOut) {
@@ -554,17 +597,25 @@ export default function CodeEditorPane({
           </button>
         </div>
       )}
-      <div className="flex-1 min-h-0">
-        <CodeMirror
-          value={typeof value === 'string' ? value : ''}
-          height="100%"
-          className="h-full"
-          theme={theme === 'dark' ? darkEditorTheme : lightEditorTheme}
-          extensions={extensions}
-          onChange={onChange}
-          onCreateEditor={(view) => {
-            viewRef.current = view;
-          }}
+      <div className="flex-1 min-h-0 flex overflow-hidden">
+        <div className="flex-1 min-w-0 min-h-0">
+          <CodeMirror
+            value={typeof value === 'string' ? value : ''}
+            height="100%"
+            className="h-full"
+            theme={theme === 'dark' ? darkEditorTheme : lightEditorTheme}
+            extensions={extensions}
+            onChange={onChange}
+            onCreateEditor={(view) => {
+              viewRef.current = view;
+              scrollCleanupRef.current?.();
+              const onScroll = () => scheduleViewportSync(view);
+              view.scrollDOM.addEventListener('scroll', onScroll, { passive: true });
+              scrollCleanupRef.current = () => {
+                view.scrollDOM?.removeEventListener('scroll', onScroll);
+              };
+              scheduleViewportSync(view);
+            }}
           basicSetup={{
             lineNumbers: true,
             highlightActiveLineGutter: true,
@@ -593,6 +644,28 @@ export default function CodeEditorPane({
             tabSize,
           }}
         />
+        </div>
+        {showMinimap && (
+          <CodeMinimap
+            code={typeof value === 'string' ? value : ''}
+            theme={theme}
+            viewport={minimapViewport}
+            activeLine={activeLine}
+            diagnostics={minimapDiagnostics}
+            onScrollToRatio={(ratio) => {
+              const v = viewRef.current;
+              if (!v?.scrollDOM) return;
+              const maxScroll = Math.max(0, v.scrollDOM.scrollHeight - v.scrollDOM.clientHeight);
+              v.scrollDOM.scrollTop = Math.round(ratio * maxScroll);
+              scheduleViewportSync(v);
+            }}
+            onWheelScroll={(deltaY) => {
+              const v = viewRef.current;
+              if (!v?.scrollDOM) return;
+              v.scrollDOM.scrollTop += deltaY;
+            }}
+          />
+        )}
       </div>
     </div>
   );
