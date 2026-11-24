@@ -431,3 +431,5 @@ export function CodeReviewModal({ open, onClose, files, onSelectFile }) {
     </ModalFrame>
   );
 }
+
+export { DependencyGraphModal } from './DependencyGraphModal';

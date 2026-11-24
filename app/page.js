@@ -43,6 +43,7 @@ import {
   Rows2,
   Globe,
   Copy,
+  GitCommit,
 } from 'lucide-react';
 import EditorGroupPane from './components/EditorGroupPane';
 import FileExplorer from './components/FileExplorer';
@@ -59,6 +60,7 @@ import {
   ShortcutsModal,
   TemplatesModal,
   CodeReviewModal,
+  DependencyGraphModal,
 } from './components/IdeModals';
 import { WORKSPACE_TEMPLATES, detectLang, getLangMeta } from './lib/workspaces';
 import { diagnose, explainRuntimeError, formatCode } from './lib/diagnostics';
@@ -174,6 +176,7 @@ export default function CodeLabIDE() {
   const [exportOpen, setExportOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [graphOpen, setGraphOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [githubOpen, setGithubOpen] = useState(false);
   const [githubSessionToken, setGithubSessionToken] = useState(null);
@@ -2268,6 +2271,15 @@ export default function CodeLabIDE() {
 
               <button
                 type="button"
+                title={t('dependencyGraphBtn')}
+                onClick={() => setGraphOpen(true)}
+                className="relative w-full h-10 flex items-center justify-center hover:text-white transition-colors text-slate-400"
+              >
+                <GitCommit className="w-5 h-5" />
+              </button>
+
+              <button
+                type="button"
                 data-testid="activity-github-btn"
                 title={t('sourceControlTitle')}
                 onClick={() => setGithubOpen(true)}
@@ -2915,6 +2927,12 @@ export default function CodeLabIDE() {
           handleSelectFile(path);
           if (line) setTimeout(() => editorApiRef.current?.jumpToLine(line), 60);
         }}
+      />
+      <DependencyGraphModal
+        open={graphOpen}
+        onClose={() => setGraphOpen(false)}
+        files={files}
+        onSelectFile={handleSelectFile}
       />
       <QuickOpenModal open={quickOpenOpen} onClose={() => setQuickOpenOpen(false)} files={files} onSelectFile={handleSelectFile} />
       <GitHubPushModal

@@ -325,6 +325,7 @@ export const TRANSLATIONS = {
       'قم بتسمية الملفات والمتغيرات بأسماء واضحة ودلالية لتسهيل الصيانة.',
       'مشروعك جاهز للعمل بدون إنترنت وحفظ محلي بالكامل في المتصفح.',
     ],
+    dependencyGraphBtn: 'خريطة الاعتماديات',
 
     // GitHub Push & Linked Repositories Modal
     githubModalTitle: 'مزامنة ورفع التغييرات إلى GitHub',
@@ -774,6 +775,7 @@ export const TRANSLATIONS = {
       'Use clear, semantic file and variable names for easier long-term maintenance.',
       'Your workspace runs offline and persists automatically in browser storage.',
     ],
+    dependencyGraphBtn: 'Dependency Graph',
 
     // GitHub Push & Linked Repositories Modal
     githubModalTitle: 'GitHub Sync & Push Changes',
