@@ -70,6 +70,7 @@ import { stex } from '@codemirror/legacy-modes/mode/stex';
 
 import { diagnose } from '../lib/diagnostics';
 import { createLanguageCompletionSource } from '../lib/completions';
+import { useI18n } from '../lib/LocaleContext';
 
 function getLangExtension(lang) {
   switch (lang) {
@@ -305,6 +306,7 @@ export default function CodeEditorPane({
   editorRefOut,
   onRunShortcut,
 }) {
+  const { locale, t } = useI18n();
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [minimapViewport, setMinimapViewport] = useState({ firstVisibleLine: 1, lastVisibleLine: 30 });
   const [activeLine, setActiveLine] = useState(1);
@@ -322,8 +324,8 @@ export default function CodeEditorPane({
   runCbRef.current = onRunShortcut;
 
   const minimapDiagnostics = useMemo(
-    () => diagnose(typeof value === 'string' ? value : '', lang),
-    [value, lang]
+    () => diagnose(typeof value === 'string' ? value : '', lang, locale),
+    [value, lang, locale]
   );
 
   const scheduleViewportSync = useCallback((view) => {
@@ -361,7 +363,7 @@ export default function CodeEditorPane({
     const localLinter = linter(
       (view) => {
         const text = view.state.doc.toString();
-        const issues = diagnose(text, lang);
+        const issues = diagnose(text, lang, locale);
         const totalLines = view.state.doc.lines;
         return issues.map((item) => {
           const lineNum = Math.min(Math.max(1, item.line || 1), totalLines);
@@ -453,7 +455,7 @@ export default function CodeEditorPane({
       exts.push(EditorView.lineWrapping);
     }
     return exts;
-  }, [lang, theme, fontSize, tabSize, wordWrap, scheduleViewportSync]);
+  }, [lang, locale, theme, fontSize, tabSize, wordWrap, scheduleViewportSync]);
 
   useEffect(() => {
     if (editorRefOut) {
@@ -559,7 +561,7 @@ export default function CodeEditorPane({
         <div className="shrink-0 bg-slate-100 dark:bg-[#0f172a] border-b border-slate-200 dark:border-slate-800 p-2 flex items-center justify-between gap-2 z-10 select-none">
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
             <span className="text-[11px] font-semibold text-sky-600 dark:text-sky-400 px-1 whitespace-nowrap">
-              اختصارات {lang.toUpperCase()}:
+              {t('shortcutsPrefix', lang.toUpperCase())}
             </span>
             {config.symbols.map((sym) => (
               <button
@@ -590,7 +592,7 @@ export default function CodeEditorPane({
           <button
             type="button"
             onClick={() => setShowShortcuts(false)}
-            title="إخفاء الاختصارات"
+            title={t('hideShortcutsTitle')}
             className="p-1 rounded text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800 shrink-0"
           >
             <X className="w-4 h-4" />

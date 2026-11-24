@@ -4,8 +4,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import { detectLang } from '../lib/workspaces';
 import LanguageIcon from './LanguageIcon';
+import { useI18n } from '../lib/LocaleContext';
 
 export default function QuickOpenModal({ open, onClose, files, onSelectFile }) {
+  const { t } = useI18n();
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -67,7 +69,7 @@ export default function QuickOpenModal({ open, onClose, files, onSelectFile }) {
               setQuery(e.target.value);
               setSelectedIndex(0);
             }}
-            placeholder="اكتب اسم الملف للفتح السريع (مثل VS Code Ctrl+P)..."
+            placeholder={t('quickOpenPlaceholder')}
             className="flex-1 bg-transparent text-sm font-mono text-slate-900 dark:text-slate-100 outline-none"
           />
           <span className="text-[11px] font-mono text-slate-400">Ctrl+P</span>
@@ -93,11 +95,11 @@ export default function QuickOpenModal({ open, onClose, files, onSelectFile }) {
                   <LanguageIcon lang={item.lang} size={15} />
                   <span className="truncate">{item.path}</span>
                 </div>
-                <span className="text-[10px] text-slate-400 shrink-0">فتح مباشر</span>
+                <span className="text-[10px] text-slate-400 shrink-0">{t('quickOpenHint')}</span>
               </button>
             ))
           ) : (
-            <p className="text-xs text-slate-500 text-center py-6">لا توجد ملفات مطابقة</p>
+            <p className="text-xs text-slate-500 text-center py-6">{t('noMatchingFiles')}</p>
           )}
         </div>
       </div>

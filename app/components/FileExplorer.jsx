@@ -25,6 +25,7 @@ import {
 import { detectLang, detectMediaKind } from '../lib/workspaces';
 import { extractZipArchive, isMediaEntry } from '../lib/storage';
 import LanguageIcon from './LanguageIcon';
+import { useI18n } from '../lib/LocaleContext';
 
 function buildTree(paths) {
   const root = { folders: {}, files: [] };
@@ -95,7 +96,9 @@ export default function FileExplorer({
   onClearAllFiles,
   onOpenLocalFile,
   onSaveLocalFile,
+  gitStatusMap,
 }) {
+  const { t } = useI18n();
   const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(null);
   const [draftName, setDraftName] = useState('');
@@ -140,7 +143,7 @@ export default function FileExplorer({
             hasZip = true;
             const extracted = await extractZipArchive(f);
             if (extracted.count === 0) {
-              onImportError?.(`الأرشيف ${f.name} فارغ ولا يحتوي على ملفات قابلة للاستخراج`);
+              onImportError?.(t('zipEmptyNotice', f.name));
               continue;
             }
             Object.assign(loaded, extracted.files);
@@ -161,7 +164,7 @@ export default function FileExplorer({
           }
           loaded[f.name] = content;
         } catch {
-          onImportError?.(`تعذر قراءة أو فك ضغط الملف: ${f.name}`);
+          onImportError?.(t('zipReadFailedNotice', f.name));
         }
       }
       if (Object.keys(loaded).length) {
@@ -181,7 +184,7 @@ export default function FileExplorer({
     }
     if (creating.type === 'folder') {
       const full = `${creating.prefix ? creating.prefix + '/' : ''}${clean}/index.js`;
-      onCreateFile(full, '// ملف جديد داخل المجلد\n');
+      onCreateFile(full, t('newFolderStarterComment'));
     } else {
       const full = `${creating.prefix ? creating.prefix + '/' : ''}${clean}`;
       onCreateFile(full);
@@ -229,7 +232,7 @@ export default function FileExplorer({
                 </div>
                 <button
                   type="button"
-                  title="ملف جديد داخل المجلد"
+                  title={t('newFileInFolderTitle')}
                   onClick={(e) => {
                     e.stopPropagation();
                     setCollapsed((c) => ({ ...c, [fullPrefix]: false }));
@@ -285,6 +288,22 @@ export default function FileExplorer({
               >
                 {renderIcon(path)}
                 <span className="truncate font-mono">{name}</span>
+                {gitStatusMap?.[path] === 'modified' && (
+                  <span
+                    title={t('statusModified')}
+                    className="ms-auto text-[10px] font-mono font-bold text-amber-500 shrink-0"
+                  >
+                    M
+                  </span>
+                )}
+                {gitStatusMap?.[path] === 'added' && (
+                  <span
+                    title={t('statusAdded')}
+                    className="ms-auto text-[10px] font-mono font-bold text-emerald-500 shrink-0"
+                  >
+                    A
+                  </span>
+                )}
               </button>
               <div
                 className={`flex items-center gap-0.5 shrink-0 transition-opacity ${
@@ -294,8 +313,8 @@ export default function FileExplorer({
                 {onOpenFileToSide && (
                   <button
                     type="button"
-                    title="فتح في شاشة مقسمة"
-                    aria-label={`فتح ${name} في شاشة مقسمة`}
+                    title={t('openToSideTitle')}
+                    aria-label={t('openToSideAria', name)}
                     onClick={(e) => {
                       e.stopPropagation();
                       onOpenFileToSide(path);
@@ -307,8 +326,8 @@ export default function FileExplorer({
                 )}
                 <button
                   type="button"
-                  title="إعادة تسمية"
-                  aria-label={`إعادة تسمية ${name}`}
+                  title={t('renameTitle')}
+                  aria-label={t('renameAria', name)}
                   onClick={(e) => {
                     e.stopPropagation();
                     setRenamingPath(path);
@@ -321,8 +340,8 @@ export default function FileExplorer({
                 {!isMediaEntry(files[path]) && (
                   <button
                     type="button"
-                    title="تكرار الملف"
-                    aria-label={`تكرار ${name}`}
+                    title={t('duplicateTitle')}
+                    aria-label={t('duplicateAria', name)}
                     onClick={(e) => {
                       e.stopPropagation();
                       onDuplicateFile(path);
@@ -334,8 +353,8 @@ export default function FileExplorer({
                 )}
                 <button
                   type="button"
-                  title="حذف الملف"
-                  aria-label={`حذف ${name}`}
+                  title={t('deleteTitle')}
+                  aria-label={t('deleteAria', name)}
                   onClick={(e) => {
                     e.stopPropagation();
                     onDeleteFile(path);
@@ -364,7 +383,7 @@ export default function FileExplorer({
         setDragOver(false);
         handleFileList(e.dataTransfer?.files);
       }}
-      className={`w-56 xl:w-64 shrink-0 flex flex-col border-l border-[#e5e5e5] dark:border-[#2b2b2b] bg-[#f3f3f3] dark:bg-[#252526] select-none overflow-hidden transition-colors ${
+      className={`w-56 xl:w-64 shrink-0 flex flex-col border-e border-[#e5e5e5] dark:border-[#2b2b2b] bg-[#f3f3f3] dark:bg-[#252526] select-none overflow-hidden transition-colors ${
         dragOver ? 'ring-2 ring-inset ring-[#007acc] bg-[#007acc]/10' : ''
       }`}
     >
@@ -394,7 +413,7 @@ export default function FileExplorer({
           ) : (
             <button
               type="button"
-              title="اضغط لتغيير اسم المشروع"
+              title={t('clickToRenameProject')}
               onClick={() => {
                 setProjectDraft(projectName || 'my-codelab-project');
                 setEditingProject(true);
@@ -409,21 +428,21 @@ export default function FileExplorer({
           )}
           <button
             type="button"
-            title="تسمية وتنزيل المشروع على جهازك"
+            title={t('downloadTitle')}
             onClick={onExportWorkspace}
             className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-sky-600 hover:bg-sky-500 text-white shrink-0 transition-colors"
           >
             <Download className="w-3 h-3" />
-            <span>تنزيل</span>
+            <span>{t('downloadBtn')}</span>
           </button>
         </div>
 
         <div className="flex items-center justify-between gap-1">
-          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 shrink-0">الملفات</span>
+          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400 shrink-0">{t('explorerFilesHeading')}</span>
           <div className="flex items-center justify-end flex-wrap gap-0.5">
             <button
               type="button"
-              title="ملف جديد"
+              title={t('newFileTitle')}
               onClick={() => {
                 setCreating({ type: 'file', prefix: '' });
                 setDraftName('');
@@ -434,7 +453,7 @@ export default function FileExplorer({
             </button>
             <button
               type="button"
-              title="اختيار لغة برمجة جديدة"
+              title={t('newLangFileTitle')}
               onClick={onOpenLanguagePicker}
               className="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
             >
@@ -442,7 +461,7 @@ export default function FileExplorer({
             </button>
             <button
               type="button"
-              title="مجلد جديد"
+              title={t('newFolderTitle')}
               onClick={() => {
                 setCreating({ type: 'folder', prefix: '' });
                 setDraftName('');
@@ -453,7 +472,7 @@ export default function FileExplorer({
             </button>
             <button
               type="button"
-              title="رفع صور / فيديو / صوت"
+              title={t('uploadMediaTitle')}
               onClick={() => mediaUploadRef.current?.click()}
               className="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 text-emerald-600 dark:text-emerald-400"
             >
@@ -461,23 +480,23 @@ export default function FileExplorer({
             </button>
             <button
               type="button"
-              title="فتح ملف محلي (File System Access)"
+              title={t('openLocalTitle')}
               onClick={onOpenLocalFile}
               className="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 text-sky-600 dark:text-sky-400 font-medium text-xs flex items-center gap-1"
             >
-              <span>فتح ملف</span>
+              <span>{t('openLocalShort')}</span>
             </button>
             <button
               type="button"
-              title="حفظ الملف الحالي محلياً"
+              title={t('saveLocalTitle')}
               onClick={onSaveLocalFile}
               className="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 text-emerald-600 dark:text-emerald-400 font-medium text-xs flex items-center gap-1"
             >
-              <span>حفظ</span>
+              <span>{t('saveLocalShort')}</span>
             </button>
             <button
               type="button"
-              title="استيراد وفك ضغط ملف ZIP"
+              title={t('importZipTitle')}
               disabled={extractingZip}
               onClick={() => zipUploadRef.current?.click()}
               className="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 text-amber-600 dark:text-amber-400 disabled:opacity-50"
@@ -486,7 +505,7 @@ export default function FileExplorer({
             </button>
             <button
               type="button"
-              title="رفع ملفات كود أو وسائط أو ZIP"
+              title={t('uploadAnyTitle')}
               onClick={() => uploadRef.current?.click()}
               className="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
             >
@@ -494,7 +513,7 @@ export default function FileExplorer({
             </button>
             <button
               type="button"
-              title="حذف جميع الملفات"
+              title={t('clearAllTitle')}
               disabled={Object.keys(files).length === 0}
               onClick={() => setConfirmClearAll((v) => !v)}
               className="p-1.5 rounded-md hover:bg-rose-500/15 text-rose-600 dark:text-rose-400 disabled:opacity-40 disabled:pointer-events-none"
@@ -538,19 +557,19 @@ export default function FileExplorer({
         </div>
 
         <div className="relative flex items-center">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 pointer-events-none" />
+          <Search className="w-3.5 h-3.5 text-slate-400 absolute start-2.5 pointer-events-none" />
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="تصفية الملفات..."
-            className="w-full pr-8 pl-6 py-1 text-xs rounded-sm bg-white dark:bg-[#3c3c3c] border border-[#cecece] dark:border-[#3c3c3c] text-[#1e1e1e] dark:text-[#cccccc] outline-none focus:border-[#007acc]"
+            placeholder={t('filterFilesPlaceholder')}
+            className="w-full ps-8 pe-6 py-1 text-xs rounded-sm bg-white dark:bg-[#3c3c3c] border border-[#cecece] dark:border-[#3c3c3c] text-[#1e1e1e] dark:text-[#cccccc] outline-none focus:border-[#007acc]"
           />
           {query && (
             <button
               type="button"
               onClick={() => setQuery('')}
-              className="absolute left-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              className="absolute end-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
             >
               <X className="w-3 h-3" />
             </button>
@@ -561,7 +580,7 @@ export default function FileExplorer({
       {confirmClearAll && Object.keys(files).length > 0 && (
         <div className="p-2.5 border-b border-rose-200 dark:border-rose-900/60 bg-rose-50/80 dark:bg-rose-950/30 space-y-2">
           <div className="text-[11px] font-medium text-rose-700 dark:text-rose-300">
-            هل أنت متأكد من حذف جميع الملفات ({Object.keys(files).length}) نهائياً؟
+            {t('confirmDeleteAll', Object.keys(files).length)}
           </div>
           <div className="flex items-center gap-1.5">
             <button
@@ -574,14 +593,14 @@ export default function FileExplorer({
               }}
               className="flex-1 px-2.5 py-1 text-xs rounded bg-rose-600 hover:bg-rose-500 text-white font-medium transition-colors"
             >
-              حذف الكل
+              {t('deleteAllConfirmBtn')}
             </button>
             <button
               type="button"
               onClick={() => setConfirmClearAll(false)}
               className="px-2.5 py-1 text-xs rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors"
             >
-              إلغاء
+              {t('cancelBtn')}
             </button>
           </div>
         </div>
@@ -590,7 +609,7 @@ export default function FileExplorer({
       {creating && (
         <form onSubmit={submitCreate} className="p-2.5 border-b border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60">
           <div className="text-[11px] text-slate-500 dark:text-slate-400 mb-1.5">
-            {creating.type === 'folder' ? 'اسم المجلد الجديد:' : `اسم الملف${creating.prefix ? ` داخل ${creating.prefix}` : ''}:`}
+            {creating.type === 'folder' ? t('newFolderLabel') : t('newFileLabel', creating.prefix)}
           </div>
           <div className="flex gap-1.5">
             <input
@@ -602,14 +621,14 @@ export default function FileExplorer({
               className="flex-1 min-w-0 px-2 py-1 text-xs font-mono rounded border border-sky-500 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 outline-none"
             />
             <button type="submit" className="px-2.5 py-1 text-xs rounded bg-sky-600 text-white font-medium">
-              إنشاء
+              {t('createBtn')}
             </button>
             <button
               type="button"
               onClick={() => setCreating(null)}
               className="px-2 py-1 text-xs rounded bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
             >
-              إلغاء
+              {t('cancelBtn')}
             </button>
           </div>
         </form>
@@ -618,14 +637,14 @@ export default function FileExplorer({
       <div className="flex-1 overflow-auto p-2 space-y-0.5">
         {extractingZip && (
           <div className="mb-2 px-2.5 py-2 rounded-md bg-sky-500/10 border border-sky-500/30 text-[11px] text-sky-600 dark:text-sky-300 text-center">
-            جارٍ فك ضغط ملف ZIP...
+            {t('extractingZip')}
           </div>
         )}
         {visiblePaths.length ? (
           renderNode(tree)
         ) : Object.keys(files).length === 0 ? (
           <div className="text-center py-8 px-3 space-y-2">
-            <p className="text-xs text-slate-500 dark:text-slate-400">لا توجد ملفات في المشروع</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{t('noFilesInProject')}</p>
             <div className="flex flex-col gap-1.5">
               <button
                 type="button"
@@ -636,7 +655,7 @@ export default function FileExplorer({
                 className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-sky-600 hover:bg-sky-500 text-white transition-colors"
               >
                 <FilePlus className="w-3.5 h-3.5" />
-                <span>إنشاء ملف جديد</span>
+                <span>{t('createNewFileBtn')}</span>
               </button>
               <button
                 type="button"
@@ -644,17 +663,17 @@ export default function FileExplorer({
                 className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border border-slate-300 dark:border-slate-700 hover:bg-slate-200/70 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition-colors"
               >
                 <FolderArchive className="w-3.5 h-3.5 text-amber-500" />
-                <span>استيراد وفك ضغط ZIP</span>
+                <span>{t('importAndExtractZipBtn')}</span>
               </button>
             </div>
           </div>
         ) : (
-          <p className="text-xs text-slate-500 text-center py-6">لا توجد ملفات مطابقة</p>
+          <p className="text-xs text-slate-500 text-center py-6">{t('noMatchingFiles')}</p>
         )}
       </div>
 
       <div className="px-3 py-1.5 border-t border-[#e5e5e5] dark:border-[#2b2b2b] text-[11px] text-[#616161] dark:text-[#969696] flex items-center justify-between tabular-nums">
-        <span>إجمالي الملفات · اسحب للرفع</span>
+        <span>{t('totalFilesDrop')}</span>
         <span>{Object.keys(files).length}</span>
       </div>
     </aside>

@@ -23,6 +23,7 @@ import LanguageIcon from './LanguageIcon';
 import { detectLang, detectMediaKind, getLangMeta } from '../lib/workspaces';
 import { isMediaEntry } from '../lib/storage';
 import { MAX_EDITOR_GROUPS } from '../lib/editorGroups';
+import { useI18n } from '../lib/LocaleContext';
 
 export default function EditorGroupPane({
   group,
@@ -57,6 +58,7 @@ export default function EditorGroupPane({
   onOpenZip,
   onSelectFirstFile,
 }) {
+  const { t } = useI18n();
   const localEditorRef = useRef(null);
 
   useEffect(() => {
@@ -97,7 +99,7 @@ export default function EditorGroupPane({
         >
           <div
             role="tablist"
-            aria-label={`تبويبات القسم ${groupIndex + 1}`}
+            aria-label={t('groupTabsAria', groupIndex + 1)}
             className="flex-1 min-w-0 h-full flex items-center overflow-x-auto no-scrollbar"
           >
             {group.tabs.map((path) => {
@@ -126,7 +128,7 @@ export default function EditorGroupPane({
                   </button>
                   <button
                     type="button"
-                    aria-label={`إغلاق ${name}`}
+                    aria-label={t('closeTabAria', name)}
                     onClick={(e) => {
                       e.stopPropagation();
                       onCloseTab(group.id, path);
@@ -154,8 +156,8 @@ export default function EditorGroupPane({
             {totalGroups < MAX_EDITOR_GROUPS && Object.keys(files).length > 0 && (
               <button
                 type="button"
-                title="تقسيم المحرر (Ctrl+\)"
-                aria-label={totalGroups === 1 ? 'تقسيم الشاشة' : `تقسيم القسم ${groupIndex + 1}`}
+                title={t('splitGroupTitle')}
+                aria-label={t('splitGroupAria', groupIndex + 1)}
                 onClick={(e) => {
                   e.stopPropagation();
                   onSplitGroup(group.id);
@@ -173,8 +175,8 @@ export default function EditorGroupPane({
             {totalGroups > 1 && groupIndex === 0 && (
               <button
                 type="button"
-                title={splitDirection === 'horizontal' ? 'تبديل إلى تقسيم أفقي (أعلى / أسفل)' : 'تبديل إلى تقسيم عمودي (جنباً إلى جنب)'}
-                aria-label="تبديل اتجاه التقسيم"
+                title={splitDirection === 'horizontal' ? t('toggleSplitVerticalTitle') : t('toggleSplitHorizontalTitle')}
+                aria-label={t('toggleSplitDirAria')}
                 onClick={(e) => {
                   e.stopPropagation();
                   onToggleSplitDirection();
@@ -192,8 +194,8 @@ export default function EditorGroupPane({
             {totalGroups > 1 && activeFile && (
               <button
                 type="button"
-                title="نقل التبويب الحالي إلى القسم المجاور"
-                aria-label={`نقل ${activeFile} إلى القسم المجاور`}
+                title={t('moveTabTitle')}
+                aria-label={t('moveTabAria', activeFile)}
                 onClick={(e) => {
                   e.stopPropagation();
                   onMoveActiveTab(group.id, activeFile);
@@ -207,8 +209,8 @@ export default function EditorGroupPane({
             {totalGroups > 1 && (
               <button
                 type="button"
-                title="إغلاق هذا القسم"
-                aria-label={`إغلاق القسم ${groupIndex + 1}`}
+                title={t('closeGroupTitle')}
+                aria-label={t('closeGroupAria', groupIndex + 1)}
                 onClick={(e) => {
                   e.stopPropagation();
                   onCloseGroup(group.id);
@@ -285,14 +287,14 @@ export default function EditorGroupPane({
           )
         ) : Object.keys(files).length > 0 ? (
           <div className="h-full flex flex-col items-center justify-center gap-3 text-sm text-slate-500 dark:text-slate-400">
-            <p>لا يوجد ملف مفتوح في هذا القسم</p>
+            <p>{t('noOpenFileInGroup')}</p>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => onSelectFirstFile(group.id)}
                 className="px-4 py-2 rounded-sm bg-[#007acc] hover:bg-[#1f8ad2] text-white text-xs font-semibold"
               >
-                فتح الملف الرئيسي
+                {t('openMainFileBtn')}
               </button>
               {totalGroups > 1 && (
                 <button
@@ -300,21 +302,21 @@ export default function EditorGroupPane({
                   onClick={() => onCloseGroup(group.id)}
                   className="px-3 py-2 rounded-sm border border-[#d4d4d4] dark:border-[#3c3c3c] text-xs hover:bg-black/5 dark:hover:bg-white/5"
                 >
-                  إغلاق القسم
+                  {t('closeGroupBtn')}
                 </button>
               )}
             </div>
           </div>
         ) : (
           <div className="h-full flex flex-col items-center justify-center gap-3 px-4 text-center text-sm text-slate-500 dark:text-slate-400">
-            <p>لا توجد ملفات في المشروع حالياً</p>
+            <p>{t('noFilesYet')}</p>
             <div className="flex flex-wrap items-center justify-center gap-2">
               <button
                 type="button"
                 onClick={onOpenLanguages}
                 className="px-4 py-2 rounded-sm bg-[#007acc] hover:bg-[#1f8ad2] text-white text-xs font-semibold"
               >
-                إنشاء ملف جديد
+                {t('createNewFileBtn')}
               </button>
               <button
                 type="button"
@@ -322,14 +324,14 @@ export default function EditorGroupPane({
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-sm border border-[#d4d4d4] dark:border-[#3c3c3c] hover:bg-black/5 dark:hover:bg-white/5 text-[#1e1e1e] dark:text-[#cccccc] text-xs font-medium"
               >
                 <FolderArchive className="w-3.5 h-3.5 text-amber-500" />
-                <span>استيراد وفك ضغط ZIP</span>
+                <span>{t('importAndExtractZipBtn')}</span>
               </button>
               <button
                 type="button"
                 onClick={onOpenTemplates}
                 className="px-4 py-2 rounded-sm border border-[#d4d4d4] dark:border-[#3c3c3c] hover:bg-black/5 dark:hover:bg-white/5 text-[#1e1e1e] dark:text-[#cccccc] text-xs font-medium"
               >
-                اختيار قالب جاهز
+                {t('chooseTemplateBtn')}
               </button>
             </div>
           </div>

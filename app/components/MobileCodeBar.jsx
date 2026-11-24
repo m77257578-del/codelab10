@@ -3,8 +3,10 @@
 import { useMemo, useState } from 'react';
 import { Undo2, Redo2, ChevronLeft, ChevronRight, Braces, Grid2X2, X, IndentIncrease, ChevronUp, ChevronDown } from 'lucide-react';
 import { getMobileBarConfig } from '../lib/completions';
+import { useI18n } from '../lib/LocaleContext';
 
 export default function MobileCodeBar({ lang, editorApiRef, compact = false }) {
+  const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const [showQuickStrip, setShowQuickStrip] = useState(false);
   const config = useMemo(() => getMobileBarConfig(lang), [lang]);
@@ -22,13 +24,13 @@ export default function MobileCodeBar({ lang, editorApiRef, compact = false }) {
         <div className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] p-2.5 max-h-44 overflow-y-auto">
           <div className="flex items-center justify-between px-1 pb-2">
             <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-              وسوم وخصائص {lang.toUpperCase()} ({config.quickItems.length})
+              {t('langTagsHeader', lang.toUpperCase(), config.quickItems.length)}
             </span>
             <button
               type="button"
               onMouseDown={keepFocus}
               onClick={() => setExpanded(false)}
-              aria-label="إغلاق القائمة"
+              aria-label={t('closeListAria')}
               className="p-1 rounded text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               <X className="w-3.5 h-3.5" />
@@ -81,7 +83,7 @@ export default function MobileCodeBar({ lang, editorApiRef, compact = false }) {
       <div className="flex items-center gap-1 px-2 py-1 overflow-x-auto no-scrollbar" dir="ltr">
         <button
           type="button"
-          title="وسوم وخصائص اللغة"
+          title={t('langTagsBtnTitle')}
           onMouseDown={keepFocus}
           onClick={() => setExpanded((v) => !v)}
           className={`inline-flex items-center gap-1 px-2 h-8 rounded-md text-[11px] font-semibold whitespace-nowrap shrink-0 transition-colors ${
@@ -97,7 +99,7 @@ export default function MobileCodeBar({ lang, editorApiRef, compact = false }) {
         {compact && (
           <button
             type="button"
-            title={showQuickStrip ? 'إخفاء شريط الوسوم السريع' : 'إظهار شريط الوسوم السريع'}
+            title={showQuickStrip ? t('hideQuickStripTitle') : t('showQuickStripTitle')}
             onMouseDown={keepFocus}
             onClick={() => setShowQuickStrip((v) => !v)}
             className="h-8 w-7 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 grid place-items-center shrink-0"
@@ -108,13 +110,13 @@ export default function MobileCodeBar({ lang, editorApiRef, compact = false }) {
 
         <button
           type="button"
-          title="إكمال تلقائي"
+          title={t('autocompleteTitle')}
           onMouseDown={keepFocus}
           onClick={() => editorApiRef.current?.triggerAutocomplete()}
           className="h-8 px-2 rounded-md bg-sky-600 text-white text-[11px] font-medium inline-flex items-center gap-1 shrink-0 active:bg-sky-500"
         >
           <Braces className="w-3.5 h-3.5" />
-          <span>إكمال</span>
+          <span>{t('autocompleteBtn')}</span>
         </button>
 
         <button
@@ -129,7 +131,7 @@ export default function MobileCodeBar({ lang, editorApiRef, compact = false }) {
 
         <button
           type="button"
-          title="تراجع"
+          title={t('undoTitle')}
           onMouseDown={keepFocus}
           onClick={() => editorApiRef.current?.undo()}
           className="h-8 w-8 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 grid place-items-center shrink-0 active:bg-slate-200 dark:active:bg-slate-700"
@@ -139,7 +141,7 @@ export default function MobileCodeBar({ lang, editorApiRef, compact = false }) {
 
         <button
           type="button"
-          title="إعادة"
+          title={t('redoTitle')}
           onMouseDown={keepFocus}
           onClick={() => editorApiRef.current?.redo()}
           className="h-8 w-8 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 grid place-items-center shrink-0 active:bg-slate-200 dark:active:bg-slate-700"
@@ -149,7 +151,7 @@ export default function MobileCodeBar({ lang, editorApiRef, compact = false }) {
 
         <button
           type="button"
-          title="تحريك المؤشر يساراً"
+          title={t('moveCursorLeftTitle')}
           onMouseDown={keepFocus}
           onClick={() => editorApiRef.current?.moveCursor(-1)}
           className="h-8 w-8 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 grid place-items-center shrink-0 active:bg-slate-200 dark:active:bg-slate-700"
@@ -159,7 +161,7 @@ export default function MobileCodeBar({ lang, editorApiRef, compact = false }) {
 
         <button
           type="button"
-          title="تحريك المؤشر يميناً"
+          title={t('moveCursorRightTitle')}
           onMouseDown={keepFocus}
           onClick={() => editorApiRef.current?.moveCursor(1)}
           className="h-8 w-8 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 grid place-items-center shrink-0 active:bg-slate-200 dark:active:bg-slate-700"

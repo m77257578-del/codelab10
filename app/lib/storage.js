@@ -6,6 +6,7 @@ const DB_NAME = 'codelab_ide_db';
 const STORE_NAME = 'workspace';
 const FILES_KEY = 'files_v2';
 const PROJECT_NAME_KEY = 'codelab_project_name_v1';
+const GITHUB_LINK_KEY = 'codelab_github_link_v1';
 
 function openDB() {
   return new Promise((resolve, reject) => {
@@ -59,6 +60,34 @@ export function loadProjectName() {
 export function saveProjectName(name) {
   try {
     localStorage.setItem(PROJECT_NAME_KEY, name);
+  } catch {}
+}
+
+export function loadGitHubLink() {
+  try {
+    const raw = localStorage.getItem(GITHUB_LINK_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || !parsed.owner || !parsed.name) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function saveGitHubLink(link) {
+  try {
+    if (!link) {
+      localStorage.removeItem(GITHUB_LINK_KEY);
+      return;
+    }
+    localStorage.setItem(GITHUB_LINK_KEY, JSON.stringify(link));
+  } catch {}
+}
+
+export function clearGitHubLink() {
+  try {
+    localStorage.removeItem(GITHUB_LINK_KEY);
   } catch {}
 }
 

@@ -41,6 +41,7 @@ import {
   Check,
   Columns2,
   Rows2,
+  Globe,
 } from 'lucide-react';
 import EditorGroupPane from './components/EditorGroupPane';
 import FileExplorer from './components/FileExplorer';
@@ -49,8 +50,9 @@ import MobileCodeBar from './components/MobileCodeBar';
 import CommandPalette from './components/CommandPalette';
 import QuickOpenModal from './components/QuickOpenModal';
 import IntegratedTerminal from './components/IntegratedTerminal';
+import GitHubPushModal from './components/GitHubPushModal';
+import { OfflineIndicator, PWAInstallButton } from './components/PWAInstallButton';
 import {
-  DeveloperModal,
   ExportProjectModal,
   LanguagesModal,
   ShortcutsModal,
@@ -58,19 +60,29 @@ import {
   CodeReviewModal,
 } from './components/IdeModals';
 import { WORKSPACE_TEMPLATES, detectLang, getLangMeta } from './lib/workspaces';
-import { arJs, diagnose, formatCode } from './lib/diagnostics';
+import { diagnose, explainRuntimeError, formatCode } from './lib/diagnostics';
 import { formatWithPrettier } from './lib/formatter';
 import { buildWebPreviewDoc, isPyodideReady, runCode, runWorker } from './lib/runner';
+import { I18nProvider } from './lib/LocaleContext';
+import { createTranslator, getToggleLocale, normalizeLocale } from './lib/i18n';
 import {
   buildProjectZip,
+  clearGitHubLink,
   extractZipArchive,
   isMediaEntry,
+  loadGitHubLink,
   loadProjectName,
   loadWorkspaceFiles,
   sanitizeProjectName,
+  saveGitHubLink,
   saveProjectName,
   saveWorkspaceFiles,
 } from './lib/storage';
+import {
+  buildGitHubSnapshot,
+  computeGitHubChanges,
+  getEntrySignature,
+} from './lib/githubSync';
 import {
   MAX_EDITOR_GROUPS,
   closeEditorGroup,
@@ -110,6 +122,7 @@ export default function CodeLabIDE() {
 
   const [prefs, setPrefs] = useState({
     theme: 'dark',
+    locale: 'ar',
     fontSize: 14,
     tabSize: 2,
     wordWrap: false,
@@ -120,6 +133,11 @@ export default function CodeLabIDE() {
     showMobileBar: false,
     showMinimap: true,
   });
+
+  const { locale, dir, dict, t } = useMemo(
+    () => createTranslator(prefs.locale),
+    [prefs.locale]
+  );
 
   const [isMobile, setIsMobile] = useState(false);
   const [editorFocused, setEditorFocused] = useState(false);
@@ -147,6 +165,15 @@ export default function CodeLabIDE() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [githubOpen, setGithubOpen] = useState(false);
+  const [githubSessionToken, setGithubSessionToken] = useState(null);
+  const [githubUser, setGithubUser] = useState(null);
+  const [githubLink, setGithubLink] = useState(null);
+
+  const githubChanges = useMemo(
+    () => computeGitHubChanges(files, githubLink?.syncedSnapshot),
+    [files, githubLink]
+  );
 
   const editorApisRef = useRef({});
   const activeGroupIdRef = useRef(activeGroupId);
@@ -190,6 +217,20 @@ export default function CodeLabIDE() {
     noticeTimerRef.current = setTimeout(() => setNotice(null), 2600);
   }, []);
 
+  const handleSetLocale = useCallback(
+    (nextLocale) => {
+      const normalized = normalizeLocale(nextLocale);
+      setPrefs((p) => ({ ...p, locale: normalized }));
+      const nextTranslator = createTranslator(normalized);
+      showNotice(nextTranslator.t('languageSwitchedNotice'));
+    },
+    [showNotice]
+  );
+
+  const handleToggleLocale = useCallback(() => {
+    handleSetLocale(getToggleLocale(locale));
+  }, [handleSetLocale, locale]);
+
   // Load persisted workspace (IndexedDB -> legacy localStorage fallback) and preferences
   useEffect(() => {
     let active = true;
@@ -214,9 +255,13 @@ export default function CodeLabIDE() {
         const savedActive = localStorage.getItem(STORAGE_ACTIVE);
         const savedPrefs = localStorage.getItem(STORAGE_PREFS);
         const savedProj = loadProjectName();
+        const savedGitHubLink = loadGitHubLink();
 
         if (!active) return;
         setProjectName(savedProj);
+        if (savedGitHubLink) {
+          setGithubLink(savedGitHubLink);
+        }
         if (savedSplitDir === 'horizontal' || savedSplitDir === 'vertical') {
           setSplitDirection(savedSplitDir);
         }
@@ -255,6 +300,7 @@ export default function CodeLabIDE() {
           setPrefs((prev) => ({
             ...prev,
             ...parsedPrefs,
+            locale: normalizeLocale(parsedPrefs.locale),
             ...(narrow
               ? { showPreview: false, showExplorer: false, showDock: false }
               : tablet && parsedPrefs.showPreview && parsedPrefs.showExplorer
@@ -273,18 +319,7 @@ export default function CodeLabIDE() {
       } catch {}
 
       if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
-        if (process.env.NODE_ENV === 'production') {
-          navigator.serviceWorker.register('/api/pwa?sw=1', { scope: '/' }).catch(() => {});
-        } else {
-          navigator.serviceWorker.getRegistrations()
-            .then((regs) => Promise.all(regs.map((r) => r.unregister())))
-            .catch(() => {});
-          if (typeof caches !== 'undefined') {
-            caches.keys()
-              .then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
-              .catch(() => {});
-          }
-        }
+        navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
       }
       if (active) setHydrated(true);
     })();
@@ -355,14 +390,14 @@ export default function CodeLabIDE() {
       if (event.data.type === 'GITHUB_OAUTH_SUCCESS' && event.data.sessionToken) {
         setGithubSessionToken(event.data.sessionToken);
         setGithubUser(event.data.user || null);
-        showNotice(`تم ربط حساب GitHub: @${event.data.user?.login || 'user'}`);
+        showNotice(t('githubConnectedNotice', event.data.user?.login || 'user'));
       } else if (event.data.type === 'GITHUB_OAUTH_ERROR') {
-        showNotice(event.data.error || 'تعذر إتمام ربط حساب GitHub');
+        showNotice(event.data.error || t('githubOAuthFailed'));
       }
     };
     window.addEventListener('message', handleOAuthMessage);
     return () => window.removeEventListener('message', handleOAuthMessage);
-  }, [showNotice]);
+  }, [showNotice, t]);
 
   // Persist workspace locally in IndexedDB + lightweight metadata in localStorage
   useEffect(() => {
@@ -384,6 +419,13 @@ export default function CodeLabIDE() {
     if (prefs.theme === 'dark') root.classList.add('dark');
     else root.classList.remove('dark');
   }, [prefs.theme]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.lang = locale;
+    root.dir = dir;
+    document.title = dict.docTitle;
+  }, [locale, dir, dict.docTitle]);
 
   const activeEntry = files[activeFile];
   const activeIsMedia = isMediaEntry(activeEntry);
@@ -408,13 +450,13 @@ export default function CodeLabIDE() {
     for (const [path, content] of Object.entries(files)) {
       if (typeof content !== 'string') continue;
       const l = detectLang(path);
-      const diags = diagnose(content, l);
+      const diags = diagnose(content, l, locale);
       for (const d of diags) {
         list.push({ ...d, file: path });
       }
     }
     return list;
-  }, [files]);
+  }, [files, locale]);
 
   const appendLog = useCallback((level, text) => {
     const time = new Date().toLocaleTimeString('en-GB', { hour12: false });
@@ -430,13 +472,13 @@ export default function CodeLabIDE() {
       } else if (e.data.cl === 'log') {
         appendLog(e.data.level || 'log', String(e.data.m));
       } else if (e.data.cl === 'err') {
-        const lineStr = e.data.l ? ` (سطر ${e.data.l})` : '';
-        appendLog('error', `${arJs(e.data.m)}${lineStr}`);
+        const lineStr = e.data.l ? t('lineSuffix', e.data.l) : '';
+        appendLog('error', `${explainRuntimeError(e.data.m, locale)}${lineStr}`);
       }
     };
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
-  }, [appendLog]);
+  }, [appendLog, locale, t]);
 
   const doRun = useCallback(
     async (silent = false) => {
@@ -453,7 +495,7 @@ export default function CodeLabIDE() {
 
       if (isWebEntry) {
         if (!silent) setConsoleLogs([]);
-        const doc = buildWebPreviewDoc(files, activeFile, true);
+        const doc = buildWebPreviewDoc(files, activeFile, true, locale);
         setPreviewDoc(doc);
         setPreviewRev((n) => n + 1);
         if (!silent) {
@@ -474,7 +516,7 @@ export default function CodeLabIDE() {
       }
 
       if (!activeMeta.runnable) {
-        if (!silent) showNotice(`الملف ${activeFile} جاهز للتحرير والتمييز اللوني (${activeMeta.label})`);
+        if (!silent) showNotice(t('notRunnableNotice', activeFile, activeMeta.label));
         return;
       }
 
@@ -483,11 +525,11 @@ export default function CodeLabIDE() {
         editorApiRef.current?.blur();
       }
 
-      const localDiags = diagnose(activeCode, activeLang);
+      const localDiags = diagnose(activeCode, activeLang, locale);
       if (localDiags.length) {
         setDockTab('problems');
         setPrefs((p) => ({ ...p, showDock: true }));
-        appendLog('error', `يوجد ${localDiags.length} أخطاء في ${activeFile} — راجع تبويب المشكلات.`);
+        appendLog('error', t('fileErrorsCheckProblems', localDiags.length, activeFile));
         return;
       }
 
@@ -501,27 +543,27 @@ export default function CodeLabIDE() {
       }));
 
       if (activeLang === 'python' && !isPyodideReady()) {
-        appendLog('info', 'جارٍ التشغيل بمحرك Python المحلي الفوري...');
+        appendLog('info', t('pyodideLoading'));
       }
 
-      const res = await runCode(activeLang, activeCode, files);
+      const res = await runCode(activeLang, activeCode, files, locale);
       setRunning(false);
 
       if (res.noRun || res.err) {
-        appendLog('error', arJs(res.err));
+        appendLog('error', explainRuntimeError(res.err, locale));
         return;
       }
       const output = (res.out || '').trimEnd();
       if (output) {
         output.split('\n').forEach((line) => appendLog('output', line));
       } else {
-        appendLog('info', 'انتهى التنفيذ بدون مخرجات مطبوعة.');
+        appendLog('info', t('executionFinishedNoOutput'));
       }
       if (res.stderr) {
         appendLog('warn', res.stderr);
       }
     },
-    [activeFile, activeIsMedia, activeLang, activeCode, activeMeta.runnable, activeMeta.label, files, prefs.showPreview, appendLog, showNotice]
+    [activeFile, activeIsMedia, activeLang, activeCode, activeMeta.runnable, activeMeta.label, files, prefs.showPreview, appendLog, showNotice, locale, t]
   );
 
   // Initial preview & auto-run debounce for web projects
@@ -540,19 +582,19 @@ export default function CodeLabIDE() {
     if (!isWebContext) return;
 
     const timer = setTimeout(() => {
-      const doc = buildWebPreviewDoc(files, activeFile, true);
+      const doc = buildWebPreviewDoc(files, activeFile, true, locale);
       setPreviewDoc(doc);
       setPreviewRev((n) => n + 1);
     }, 450);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [files, activeFile, activeLang, activeIsMedia, prefs.autoRun, hydrated]);
+  }, [files, activeFile, activeLang, activeIsMedia, prefs.autoRun, hydrated, locale]);
 
   const handleSplitGroup = useCallback(
     (sourceGroupId, explicitFile) => {
       const targetId = sourceGroupId || activeGroupId;
       if (editorGroups.length >= MAX_EDITOR_GROUPS && !explicitFile) {
-        showNotice(`الحد الأقصى لتقسيم الشاشة هو ${MAX_EDITOR_GROUPS} أقسام متزامنة`);
+        showNotice(t('maxSplitNotice', MAX_EDITOR_GROUPS));
         return;
       }
       const res = splitEditorGroup(editorGroups, targetId, explicitFile, files);
@@ -562,7 +604,7 @@ export default function CodeLabIDE() {
         setGroupRatios(null);
       }
     },
-    [editorGroups, activeGroupId, files, showNotice]
+    [editorGroups, activeGroupId, files, showNotice, t]
   );
 
   const handleCloseGroup = useCallback(
@@ -621,7 +663,7 @@ export default function CodeLabIDE() {
         setQuickOpenOpen((v) => !v);
       } else if (mod && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        showNotice('تم حفظ المشروع محلياً على جهازك (جاهز بدون إنترنت)');
+        showNotice(t('savedLocallyNotice'));
       } else if (mod && e.key === 'Enter') {
         e.preventDefault();
         doRun(false);
@@ -629,7 +671,7 @@ export default function CodeLabIDE() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [doRun, showNotice, dockTab, handleSplitGroup, activeGroupId]);
+  }, [doRun, showNotice, dockTab, handleSplitGroup, activeGroupId, t]);
 
   // File management handlers
   const handleSelectFile = useCallback(
@@ -670,7 +712,7 @@ export default function CodeLabIDE() {
       if (!clean) return;
       if (files[clean] !== undefined) {
         handleSelectFile(clean);
-        showNotice('الملف موجود بالفعل، تم فتحه');
+        showNotice(t('fileExistsNotice'));
         return;
       }
       const detected = detectLang(clean);
@@ -679,7 +721,7 @@ export default function CodeLabIDE() {
       setFiles((prev) => ({ ...prev, [clean]: starter }));
       setEditorGroups((prev) => openFileInGroup(prev, activeGroupId, clean));
     },
-    [files, activeGroupId, handleSelectFile, showNotice]
+    [files, activeGroupId, handleSelectFile, showNotice, t]
   );
 
   const handleCreateLanguageFile = useCallback(
@@ -702,15 +744,15 @@ export default function CodeLabIDE() {
       }
       setFiles((prev) => ({ ...prev, [baseName]: langMeta.starter || '' }));
       setEditorGroups((prev) => openFileInGroup(prev, activeGroupId, baseName));
-      showNotice(`تم إنشاء ملف ${baseName} (${langMeta.label})`);
+      showNotice(t('fileCreatedNotice', baseName, langMeta.label));
     },
-    [files, activeGroupId, showNotice]
+    [files, activeGroupId, showNotice, t]
   );
 
   const handleRenameFile = useCallback(
     (oldPath, newPath) => {
       if (files[newPath] !== undefined) {
-        showNotice('يوجد ملف آخر بنفس الاسم');
+        showNotice(t('duplicateNameNotice'));
         return;
       }
       setFiles((prev) => {
@@ -721,7 +763,7 @@ export default function CodeLabIDE() {
       });
       setEditorGroups((prev) => renameFileInGroups(prev, oldPath, newPath));
     },
-    [files, showNotice]
+    [files, showNotice, t]
   );
 
   const handleDuplicateFile = useCallback(
@@ -757,10 +799,10 @@ export default function CodeLabIDE() {
         setPreviewDoc('');
         setPreviewRev((n) => n + 1);
         setConsoleLogs([]);
-        showNotice('تم حذف جميع الملفات من المشروع');
+        showNotice(t('allFilesDeletedNotice'));
       }
     },
-    [files, activeGroupId, showNotice]
+    [files, activeGroupId, showNotice, t]
   );
 
   const handleClearAllFiles = useCallback(() => {
@@ -771,8 +813,8 @@ export default function CodeLabIDE() {
     setPreviewDoc('');
     setPreviewRev((n) => n + 1);
     setConsoleLogs([]);
-    showNotice('تم حذف جميع الملفات من المشروع');
-  }, [showNotice]);
+    showNotice(t('allFilesDeletedNotice'));
+  }, [showNotice, t]);
 
   const handleImportFiles = useCallback(
     (loaded, importedProjectName, meta) => {
@@ -803,12 +845,12 @@ export default function CodeLabIDE() {
         setPrefs((p) => ({ ...p, showExplorer: true }));
         showNotice(
           meta?.source === 'zip'
-            ? `تم فك ضغط واستيراد ${importedNames.length} ملف داخل المحرر`
-            : `تم استيراد ${importedNames.length} ملف وحفظهم محلياً`
+            ? t('zipImportedNotice', importedNames.length)
+            : t('filesImportedNotice', importedNames.length)
         );
       }
     },
-    [activeGroupId, showNotice]
+    [activeGroupId, showNotice, t]
   );
 
   const handleZipUpload = useCallback(
@@ -821,20 +863,20 @@ export default function CodeLabIDE() {
         try {
           const extracted = await extractZipArchive(file);
           if (extracted.count === 0) {
-            showNotice(`الأرشيف ${file.name} فارغ ولا يحتوي على ملفات`);
+            showNotice(t('zipEmptyNotice', file.name));
             continue;
           }
           Object.assign(merged, extracted.files);
           if (extracted.projectName) projectTitle = extracted.projectName;
         } catch {
-          showNotice(`تعذر فك ضغط الملف: ${file.name}`);
+          showNotice(t('zipExtractFailedNotice', file.name));
         }
       }
       if (Object.keys(merged).length > 0) {
         handleImportFiles(merged, projectTitle, { source: 'zip' });
       }
     },
-    [handleImportFiles, showNotice]
+    [handleImportFiles, showNotice, t]
   );
 
   const handleInsertIntoHtml = useCallback(
@@ -852,9 +894,9 @@ export default function CodeLabIDE() {
         : `${currentHtml}\n${snippet}\n`;
       setFiles((prev) => ({ ...prev, [htmlPath]: updated }));
       setEditorGroups((prev) => openFileInGroup(prev, activeGroupId, htmlPath));
-      showNotice(`تم إدراج الوسم داخل ${htmlPath}`);
+      showNotice(t('insertedIntoHtmlNotice', htmlPath));
     },
-    [files, activeGroupId, showNotice]
+    [files, activeGroupId, showNotice, t]
   );
 
   const handleRenameProject = useCallback((raw) => {
@@ -871,9 +913,9 @@ export default function CodeLabIDE() {
       a.download = `${safe}.zip`;
       a.click();
       URL.revokeObjectURL(url);
-      showNotice(`تم تنزيل المشروع: ${safe}.zip`);
+      showNotice(t('projectDownloadedNotice', `${safe}.zip`));
     },
-    [files, projectName, showNotice]
+    [files, projectName, showNotice, t]
   );
 
   const handleDownloadJson = useCallback(
@@ -889,9 +931,9 @@ export default function CodeLabIDE() {
       a.download = `${safe}.codelab.json`;
       a.click();
       URL.revokeObjectURL(url);
-      showNotice(`تم تنزيل المشروع: ${safe}.codelab.json`);
+      showNotice(t('projectDownloadedNotice', `${safe}.codelab.json`));
     },
-    [files, projectName, showNotice]
+    [files, projectName, showNotice, t]
   );
 
   const handleDownloadActive = useCallback(() => {
@@ -931,13 +973,13 @@ export default function CodeLabIDE() {
       const writable = await handle.createWritable();
       await writable.write(activeCode);
       await writable.close();
-      showNotice(`تم حفظ الملف محلياً: ${handle.name}`);
+      showNotice(t('savedLocalFileNotice', handle.name));
     } catch (err) {
       if (err?.name !== 'AbortError') {
         handleDownloadActive();
       }
     }
-  }, [activeFile, activeIsMedia, activeCode, handleDownloadActive, showNotice]);
+  }, [activeFile, activeIsMedia, activeCode, handleDownloadActive, showNotice, t]);
 
   const handleOpenLocalFile = useCallback(async () => {
     if (typeof window === 'undefined' || !window.showOpenFilePicker) {
@@ -959,30 +1001,30 @@ export default function CodeLabIDE() {
       const fileName = file.name || 'imported.txt';
       setFiles((prev) => ({ ...prev, [fileName]: content }));
       setEditorGroups((prev) => openFileInGroup(prev, activeGroupId, fileName));
-      showNotice(`تم فتح الملف المحلي: ${fileName}`);
+      showNotice(t('openedLocalFileNotice', fileName));
     } catch (err) {
       if (err?.name !== 'AbortError') {
         document.getElementById('codelab-local-file-input')?.click();
       }
     }
-  }, [activeGroupId, showNotice]);
+  }, [activeGroupId, showNotice, t]);
 
   const handleFormat = useCallback(async () => {
     if (!activeFile || activeIsMedia) return;
     try {
       const formatted = await formatWithPrettier(activeCode, activeFile);
       setFiles((prev) => ({ ...prev, [activeFile]: formatted }));
-      showNotice('تم تنسيق الكود بواسطة Prettier');
+      showNotice(t('formattedPrettierNotice'));
     } catch (err) {
       try {
         const formatted = formatCode(activeCode, activeLang, prefs.tabSize);
         setFiles((prev) => ({ ...prev, [activeFile]: formatted }));
-        showNotice('تم تنسيق الكود (تنسيق أساسي)');
+        showNotice(t('formattedBasicNotice'));
       } catch {
-        showNotice('تعذر تنسيق الكود لوجود أخطاء نحوية');
+        showNotice(t('formatErrorSyntaxNotice'));
       }
     }
-  }, [activeFile, activeIsMedia, activeCode, activeLang, prefs.tabSize, showNotice]);
+  }, [activeFile, activeIsMedia, activeCode, activeLang, prefs.tabSize, showNotice, t]);
 
   const handleLoadTemplate = useCallback(
     (tpl) => {
@@ -992,12 +1034,15 @@ export default function CodeLabIDE() {
       setActiveGroupId(initial.activeGroupId);
       setGroupRatios(null);
       setConsoleLogs([]);
+      clearGitHubLink();
+      setGithubLink(null);
       const isWeb = tpl.id === 'web-app';
       setFocusMode(false);
       setPrefs((p) => ({ ...p, showPreview: isWeb && !isMobile, showDock: false }));
-      showNotice(`تم تحميل قالب: ${tpl.name}`);
+      const localizedTplName = dict.templates?.[tpl.id]?.name || tpl.name;
+      showNotice(t('templateLoadedNotice', localizedTplName));
     },
-    [isMobile, showNotice]
+    [isMobile, showNotice, dict, t]
   );
 
   const handleConnectGitHub = useCallback(async () => {
@@ -1006,23 +1051,126 @@ export default function CodeLabIDE() {
       const data = await res.json();
       if (!data?.configured || !data?.url) {
         setGithubOpen(true);
-        showNotice('يرجى إضافة مفاتيح GitHub OAuth في الإعدادات أولاً');
+        showNotice(t('githubAddKeys'));
         return;
       }
       const popup = window.open(data.url, 'github_oauth_popup', 'width=600,height=700');
       if (!popup) {
-        showNotice('يرجى السماح بالنوافذ المنبثقة لإتمام الربط مع GitHub');
+        showNotice(t('githubAllowPopups'));
       }
     } catch {
-      showNotice('تعذر بدء تسجيل الدخول عبر GitHub');
+      showNotice(t('githubLoginFailed'));
     }
-  }, [showNotice]);
+  }, [showNotice, t]);
 
   const handleDisconnectGitHub = useCallback(() => {
     setGithubSessionToken(null);
     setGithubUser(null);
-    showNotice('تم فصل حساب GitHub');
-  }, [showNotice]);
+    showNotice(t('githubDisconnected'));
+  }, [showNotice, t]);
+
+  const handleLinkRepository = useCallback(
+    (linkInfo) => {
+      if (!linkInfo?.fullName) return;
+      saveGitHubLink(linkInfo);
+      setGithubLink(linkInfo);
+      showNotice(t('githubLinkedNotice', linkInfo.fullName, linkInfo.branch || 'main'));
+    },
+    [showNotice, t]
+  );
+
+  const handlePullRepository = useCallback(
+    (linkInfo, pulledFiles) => {
+      const nextFiles = pulledFiles && typeof pulledFiles === 'object' ? pulledFiles : {};
+      const keys = Object.keys(nextFiles);
+      setFiles(nextFiles);
+
+      if (keys.length > 0) {
+        const entry =
+          keys.find((p) => /^index\.html?$/i.test(p)) ||
+          keys.find((p) => /^(main|app|index)\.[^/]+$/i.test(p)) ||
+          keys.find((p) => !isMediaEntry(nextFiles[p])) ||
+          keys[0];
+        const initialTabs = Array.from(new Set([entry, ...keys.slice(0, 6)]));
+        const initial = createInitialGroups(initialTabs, entry);
+        setEditorGroups(initial.groups);
+        setActiveGroupId(initial.activeGroupId);
+      } else {
+        const emptyState = normalizeGroups([], {}, 'group-1');
+        setEditorGroups(emptyState.groups);
+        setActiveGroupId(emptyState.activeGroupId);
+      }
+      setGroupRatios(null);
+
+      if (linkInfo?.name) {
+        setProjectName(sanitizeProjectName(linkInfo.name));
+      }
+      if (linkInfo?.fullName) {
+        saveGitHubLink(linkInfo);
+        setGithubLink(linkInfo);
+      }
+      showNotice(t('githubPulledNotice', keys.length, linkInfo?.fullName || 'GitHub'));
+    },
+    [showNotice, t]
+  );
+
+  const handleUnlinkRepository = useCallback(() => {
+    clearGitHubLink();
+    setGithubLink(null);
+    showNotice(t('githubUnlinkedNotice'));
+  }, [showNotice, t]);
+
+  const handleChangeLinkedBranch = useCallback((nextBranch) => {
+    if (!nextBranch) return;
+    setGithubLink((prev) => {
+      if (!prev) return prev;
+      const updated = { ...prev, branch: nextBranch };
+      saveGitHubLink(updated);
+      return updated;
+    });
+  }, []);
+
+  const handleGitHubPushSuccess = useCallback(
+    (data) => {
+      const prevSnapshot = { ...(githubLink?.syncedSnapshot || {}) };
+      const pushedItems = Array.isArray(data?.pushedItems) ? data.pushedItems : [];
+
+      if (pushedItems.length > 0) {
+        for (const item of pushedItems) {
+          if (item.status === 'deleted') {
+            delete prevSnapshot[item.path];
+          } else if (files[item.path] !== undefined) {
+            prevSnapshot[item.path] = getEntrySignature(files[item.path]);
+          }
+        }
+      } else {
+        Object.assign(prevSnapshot, buildGitHubSnapshot(files));
+      }
+
+      if (data?.fullName || githubLink?.fullName) {
+        const nextLink = {
+          fullName: data?.fullName || githubLink.fullName,
+          owner: data?.owner || githubLink?.owner,
+          name: data?.repo || githubLink?.name,
+          branch: data?.branch || githubLink?.branch || 'main',
+          private: Boolean(data?.private ?? githubLink?.private),
+          htmlUrl: data?.repoUrl || githubLink?.htmlUrl,
+          lastCommitSha: data?.commitSha || githubLink?.lastCommitSha || null,
+          lastSyncedAt: new Date().toISOString(),
+          syncedSnapshot: prevSnapshot,
+        };
+        saveGitHubLink(nextLink);
+        setGithubLink(nextLink);
+      }
+
+      const changedCount =
+        (data?.filesCount || 0) + (data?.deletedCount || 0) ||
+        pushedItems.length ||
+        Object.keys(files).length;
+      showNotice(t('uploadSuccess', changedCount));
+    },
+    [files, githubLink, showNotice, t]
+  );
 
   const handleUpdateFilesFromTerminal = useCallback(
     (nextFiles) => {
@@ -1048,7 +1196,7 @@ export default function CodeLabIDE() {
   );
 
   const handleRefreshPreviewFromTerminal = useCallback(() => {
-    const doc = buildWebPreviewDoc(files, activeFile, true);
+    const doc = buildWebPreviewDoc(files, activeFile, true, locale);
     setPreviewDoc(doc);
     setPreviewRev((n) => n + 1);
     const isTabletOrMobile = typeof window !== 'undefined' && window.innerWidth < 1024;
@@ -1059,7 +1207,7 @@ export default function CodeLabIDE() {
       ...(isTabletOrMobile ? { showExplorer: false } : {}),
       ...(isPhone ? { showDock: false } : {}),
     }));
-  }, [files, activeFile]);
+  }, [files, activeFile, locale]);
 
   const handleEditorGroupFocusChange = useCallback((groupId, focused) => {
     if (focused) {
@@ -1177,7 +1325,7 @@ export default function CodeLabIDE() {
     appendLog('info', `> ${expr}`);
     const wrapped = `try { const __res = (${expr}); if (__res !== undefined) console.log(typeof __res === 'object' ? JSON.stringify(__res) : __res); } catch { ${expr} }`;
     const res = await runWorker(wrapped);
-    if (res.err) appendLog('error', arJs(res.err));
+    if (res.err) appendLog('error', explainRuntimeError(res.err, locale));
     else if (res.out) res.out.trimEnd().split('\n').forEach((l) => appendLog('output', l));
   };
 
@@ -1201,23 +1349,23 @@ export default function CodeLabIDE() {
 
   const paletteCommands = useMemo(
     () => [
-      { id: 'run', label: 'تشغيل الكود الحالي', shortcut: 'Ctrl+Enter', action: () => doRun(false) },
-      { id: 'focus', label: focusMode ? 'إلغاء وضع التركيز الكامل' : 'تفعيل وضع التركيز الكامل للكتابة', shortcut: 'Ctrl+Shift+F', action: () => setFocusMode((v) => !v) },
-      { id: 'new-lang', label: 'إنشاء ملف بلغة برمجة (44 لغة)', shortcut: '', action: () => setLanguagesOpen(true) },
-      { id: 'import-zip', label: 'استيراد وفك ضغط ملف مضغوط (ZIP)', shortcut: '', action: () => zipInputRef.current?.click() },
-      { id: 'github-push', label: 'رفع المشروع مباشرة إلى GitHub', shortcut: '', action: () => setGithubOpen(true) },
-      { id: 'export-project', label: 'تسمية وتنزيل المشروع كاملاً (ZIP)', shortcut: '', action: () => setExportOpen(true) },
-      { id: 'format', label: 'تنسيق الكود (Format)', shortcut: 'Toolbar', action: handleFormat },
-      { id: 'find', label: 'البحث والاستبدال في الملف', shortcut: 'Ctrl+F', action: () => editorApiRef.current?.openFind() },
+      { id: 'run', label: t('cmdRun'), shortcut: 'Ctrl+Enter', action: () => doRun(false) },
+      { id: 'focus', label: focusMode ? t('cmdFocusExit') : t('cmdFocusEnter'), shortcut: 'Ctrl+Shift+F', action: () => setFocusMode((v) => !v) },
+      { id: 'new-lang', label: t('cmdNewLang'), shortcut: '', action: () => setLanguagesOpen(true) },
+      { id: 'import-zip', label: t('cmdImportZip'), shortcut: '', action: () => zipInputRef.current?.click() },
+      { id: 'github-push', label: t('cmdGithubPush'), shortcut: '', action: () => setGithubOpen(true) },
+      { id: 'export-project', label: t('cmdExportProject'), shortcut: '', action: () => setExportOpen(true) },
+      { id: 'format', label: t('cmdFormat'), shortcut: 'Toolbar', action: handleFormat },
+      { id: 'find', label: t('cmdFind'), shortcut: 'Ctrl+F', action: () => editorApiRef.current?.openFind() },
       {
         id: 'explorer',
-        label: prefs.showExplorer ? 'إخفاء مستكشف الملفات' : 'إظهار مستكشف الملفات',
+        label: prefs.showExplorer ? t('cmdHideExplorer') : t('cmdShowExplorer'),
         shortcut: 'Ctrl+B',
         action: toggleExplorer,
       },
       {
         id: 'terminal',
-        label: 'فتح الطرفية المتكاملة (Terminal)',
+        label: t('cmdOpenTerminal'),
         shortcut: 'Ctrl+`',
         action: () => {
           setFocusMode(false);
@@ -1232,43 +1380,49 @@ export default function CodeLabIDE() {
       },
       {
         id: 'dock',
-        label: prefs.showDock ? 'إخفاء اللوحة السفلية (Terminal / Console)' : 'إظهار اللوحة السفلية (Terminal / Console)',
+        label: prefs.showDock ? t('cmdHideDock') : t('cmdShowDock'),
         shortcut: 'Ctrl+J',
         action: toggleDock,
       },
       {
         id: 'preview',
-        label: prefs.showPreview ? 'إخفاء المعاينة الحية' : 'إظهار المعاينة الحية',
+        label: prefs.showPreview ? t('cmdHidePreview') : t('cmdShowPreview'),
         shortcut: '',
         action: togglePreview,
       },
       {
         id: 'mobilebar',
-        label: prefs.showMobileBar ? 'إخفاء شريط اختصارات الهاتف' : 'إظهار شريط اختصارات الهاتف',
+        label: prefs.showMobileBar ? t('cmdHideMobileBar') : t('cmdShowMobileBar'),
         shortcut: '',
         action: () => setPrefs((p) => ({ ...p, showMobileBar: !p.showMobileBar })),
       },
       {
         id: 'wrap',
-        label: prefs.wordWrap ? 'إلغاء التفاف الأسطر' : 'تفعيل التفاف الأسطر',
+        label: prefs.wordWrap ? t('cmdDisableWrap') : t('cmdEnableWrap'),
         shortcut: '',
         action: () => setPrefs((p) => ({ ...p, wordWrap: !p.wordWrap })),
       },
       {
         id: 'minimap',
-        label: prefs.showMinimap !== false ? 'إخفاء الخريطة المصغرة (Minimap)' : 'إظهار الخريطة المصغرة (Minimap)',
+        label: prefs.showMinimap !== false ? t('cmdHideMinimap') : t('cmdShowMinimap'),
         shortcut: '',
         action: () => setPrefs((p) => ({ ...p, showMinimap: p.showMinimap === false })),
       },
       {
         id: 'theme',
-        label: prefs.theme === 'dark' ? 'التبديل إلى الوضع الفاتح' : 'التبديل إلى الوضع الداكن',
+        label: prefs.theme === 'dark' ? t('cmdLightTheme') : t('cmdDarkTheme'),
         shortcut: '',
         action: () => setPrefs((p) => ({ ...p, theme: p.theme === 'dark' ? 'light' : 'dark' })),
       },
       {
+        id: 'switch-language',
+        label: t('cmdSwitchLanguage'),
+        shortcut: '',
+        action: handleToggleLocale,
+      },
+      {
         id: 'split-editor',
-        label: 'تقسيم شاشة المحرر لفتح أكثر من ملف (Split Editor)',
+        label: t('cmdSplitEditor'),
         shortcut: 'Ctrl+\\',
         action: () => handleSplitGroup(activeGroupId),
       },
@@ -1278,24 +1432,24 @@ export default function CodeLabIDE() {
               id: 'toggle-split-dir',
               label:
                 splitDirection === 'horizontal'
-                  ? 'تبديل اتجاه التقسيم إلى أفقي (أعلى / أسفل)'
-                  : 'تبديل اتجاه التقسيم إلى عمودي (جنباً إلى جنب)',
+                  ? t('cmdToggleSplitVertical')
+                  : t('cmdToggleSplitHorizontal'),
               shortcut: '',
               action: handleToggleSplitDirection,
             },
             {
               id: 'close-split-group',
-              label: 'إغلاق قسم المحرر الحالي (Close Editor Group)',
+              label: t('cmdCloseSplitGroup'),
               shortcut: '',
               action: () => handleCloseGroup(activeGroupId),
             },
           ]
         : []),
-      { id: 'quick-open', label: 'فتح ملف سريع (Quick Open / Go to File)', shortcut: 'Ctrl+P', action: () => setQuickOpenOpen(true) },
-      { id: 'shortcuts', label: 'عرض اختصارات لوحة المفاتيح', shortcut: '', action: () => setShortcutsOpen(true) },
-      { id: 'review', label: 'تقرير تقييم وفحص جودة الكود (Code Review)', shortcut: '', action: () => setReviewOpen(true) },
+      { id: 'quick-open', label: t('cmdQuickOpen'), shortcut: 'Ctrl+P', action: () => setQuickOpenOpen(true) },
+      { id: 'shortcuts', label: t('cmdShortcuts'), shortcut: '', action: () => setShortcutsOpen(true) },
+      { id: 'review', label: t('cmdReview'), shortcut: '', action: () => setReviewOpen(true) },
     ],
-    [doRun, focusMode, handleFormat, prefs.showExplorer, prefs.showDock, prefs.showPreview, prefs.showMobileBar, prefs.wordWrap, prefs.showMinimap, prefs.theme, toggleExplorer, toggleDock, togglePreview, handleSplitGroup, handleToggleSplitDirection, handleCloseGroup, activeGroupId, editorGroups.length, splitDirection, setReviewOpen, setQuickOpenOpen]
+    [t, doRun, focusMode, handleFormat, prefs.showExplorer, prefs.showDock, prefs.showPreview, prefs.showMobileBar, prefs.wordWrap, prefs.showMinimap, prefs.theme, toggleExplorer, toggleDock, togglePreview, handleToggleLocale, handleSplitGroup, handleToggleSplitDirection, handleCloseGroup, activeGroupId, editorGroups.length, splitDirection, setReviewOpen, setQuickOpenOpen]
   );
 
   const typingFullMobile = isMobile && editorFocused;
@@ -1306,7 +1460,10 @@ export default function CodeLabIDE() {
   const showDockPane = prefs.showDock && !focusMode && !typingFullMobile;
 
   return (
+    <I18nProvider locale={locale}>
     <div
+      dir={dir}
+      lang={locale}
       className="h-[100dvh] flex flex-col bg-white text-[#1e1e1e] dark:bg-[#1e1e1e] dark:text-[#cccccc] overflow-hidden"
       style={viewportHeight ? { height: `${viewportHeight}px` } : undefined}
     >
@@ -1329,7 +1486,7 @@ export default function CodeLabIDE() {
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-xs font-medium bg-[#e4e4e4] dark:bg-[#3c3c3c] text-[#1e1e1e] dark:text-[#cccccc] hover:bg-[#d4d4d4] dark:hover:bg-[#4a4a4a]"
               >
                 <Minimize2 className="w-3.5 h-3.5" />
-                <span>إنهاء التركيز</span>
+                <span>{t('exitFocus')}</span>
               </button>
             ) : (
               <button
@@ -1339,7 +1496,7 @@ export default function CodeLabIDE() {
                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-sm text-xs font-medium bg-[#e4e4e4] dark:bg-[#3c3c3c] text-[#1e1e1e] dark:text-[#cccccc]"
               >
                 <Check className="w-3.5 h-3.5 text-emerald-500" />
-                <span>تم</span>
+                <span>{t('done')}</span>
               </button>
             )}
             <button
@@ -1350,7 +1507,7 @@ export default function CodeLabIDE() {
               className="inline-flex items-center gap-1 px-3 py-1 rounded-sm text-xs font-semibold bg-[#007acc] hover:bg-[#1f8ad2] text-white disabled:opacity-60"
             >
               <Play className="w-3 h-3 fill-current" />
-              <span>{running ? 'جارٍ...' : 'تشغيل'}</span>
+              <span>{running ? t('runningShort') : t('run')}</span>
             </button>
           </div>
         </div>
@@ -1361,12 +1518,12 @@ export default function CodeLabIDE() {
       <header className="h-10 shrink-0 flex items-center justify-between gap-4 sm:gap-6 px-3 sm:px-4 border-b border-[#d4d4d4] dark:border-[#2b2b2b] bg-[#dddddd] dark:bg-[#323233]">
         <div className="flex items-center gap-2.5 whitespace-nowrap shrink-0">
           <img
-            src="/codelab-logo.jpg"
-            alt="كود لاب"
-            className="w-6 h-6 rounded object-cover shrink-0"
+            src="/codelab-logo.png"
+            alt={t('brandName')}
+            className="w-6 h-6 rounded-md object-cover shrink-0 shadow-sm ring-1 ring-white/10"
           />
           <span className="text-sm font-bold tracking-tight text-[#1e1e1e] dark:text-[#cccccc]">
-            كود لاب
+            {t('brandName')}
           </span>
           <span className="hidden md:inline text-[11px] font-mono text-[#616161] dark:text-[#8c8c8c]" dir="ltr">
             — {projectName}
@@ -1379,32 +1536,33 @@ export default function CodeLabIDE() {
             onClick={() => editorApiRef.current?.focus()}
             className="hover:text-[#000000] dark:hover:text-white transition-colors whitespace-nowrap shrink-0"
           >
-            المحرر
+            {t('navEditor')}
           </button>
           <button
             type="button"
             onClick={() => setLanguagesOpen(true)}
             className="hover:text-[#000000] dark:hover:text-white transition-colors whitespace-nowrap shrink-0"
           >
-            اللغات
+            {t('navLanguages')}
           </button>
           <button
             type="button"
             onClick={() => setTemplatesOpen(true)}
             className="hover:text-[#000000] dark:hover:text-white transition-colors whitespace-nowrap shrink-0"
           >
-            القوالب
+            {t('navTemplates')}
           </button>
           <button
             type="button"
             onClick={() => setShortcutsOpen(true)}
             className="hover:text-[#000000] dark:hover:text-white transition-colors whitespace-nowrap shrink-0"
           >
-            الاختصارات
+            {t('navShortcuts')}
           </button>
         </nav>
 
-        <div className="flex items-center shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
+          <PWAInstallButton />
           <button
             type="button"
             onClick={() => doRun(false)}
@@ -1412,7 +1570,7 @@ export default function CodeLabIDE() {
             className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-1 rounded-sm text-xs font-semibold bg-[#007acc] hover:bg-[#1f8ad2] disabled:opacity-60 text-white transition-colors whitespace-nowrap shrink-0"
           >
             <Play className="w-3.5 h-3.5 fill-current" />
-            <span>{running ? 'جارٍ التشغيل' : 'تشغيل'}</span>
+            <span>{running ? t('running') : t('run')}</span>
           </button>
         </div>
       </header>
@@ -1426,7 +1584,7 @@ export default function CodeLabIDE() {
           <div className="flex items-center gap-1 shrink-0">
             <button
               type="button"
-              title="مستكشف الملفات (Ctrl+B)"
+              title={t('filesPanelTitle')}
               onClick={toggleExplorer}
               className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs transition-colors whitespace-nowrap shrink-0 ${
                 prefs.showExplorer
@@ -1435,12 +1593,12 @@ export default function CodeLabIDE() {
               }`}
             >
               <PanelLeft className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">الملفات</span>
+              <span className="hidden sm:inline">{t('filesPanel')}</span>
             </button>
 
             <button
               type="button"
-              title="الطرفية واللوحة السفلية (Ctrl+`)"
+              title={t('terminalPanelTitle')}
               onClick={() => {
                 if (!prefs.showDock) setDockTab('terminal');
                 toggleDock();
@@ -1452,12 +1610,12 @@ export default function CodeLabIDE() {
               }`}
             >
               <Terminal className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">الطرفية</span>
+              <span className="hidden sm:inline">{t('terminalPanel')}</span>
             </button>
 
             <button
               type="button"
-              title="المعاينة الحية"
+              title={t('previewPanelTitle')}
               onClick={togglePreview}
               className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs transition-colors whitespace-nowrap shrink-0 ${
                 prefs.showPreview
@@ -1466,17 +1624,17 @@ export default function CodeLabIDE() {
               }`}
             >
               <PanelRight className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">المعاينة</span>
+              <span className="hidden sm:inline">{t('previewPanel')}</span>
             </button>
 
             <button
               type="button"
-              title="وضع التركيز للكتابة بدون إزعاج (Ctrl+Shift+F)"
+              title={t('focusPanelTitle')}
               onClick={() => setFocusMode(true)}
               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-200/70 dark:hover:bg-slate-800/60 whitespace-nowrap shrink-0"
             >
               <Maximize2 className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">تركيز</span>
+              <span className="hidden md:inline">{t('focusPanel')}</span>
             </button>
           </div>
 
@@ -1486,32 +1644,59 @@ export default function CodeLabIDE() {
           <div className="flex items-center gap-1 shrink-0">
             <button
               type="button"
-              title="اختيار لغة برمجة (44 لغة)"
+              title={t('newLangTitle')}
               onClick={() => setLanguagesOpen(true)}
               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800/60 whitespace-nowrap shrink-0"
             >
               <Languages className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">لغة جديدة</span>
+              <span className="hidden md:inline">{t('newLangBtn')}</span>
             </button>
 
             <button
               type="button"
-              title="استيراد وفك ضغط ملف ZIP"
+              title={t('importZipTitle')}
               onClick={() => zipInputRef.current?.click()}
               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800/60 whitespace-nowrap shrink-0"
             >
               <FolderArchive className="w-3.5 h-3.5 text-amber-500" />
-              <span className="hidden md:inline">استيراد ZIP</span>
+              <span className="hidden md:inline">{t('importZipBtn')}</span>
             </button>
 
             <button
               type="button"
-              title="تسمية وتنزيل المشروع"
+              title={t('exportProjectTitle')}
               onClick={() => setExportOpen(true)}
               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800/60 whitespace-nowrap shrink-0"
             >
               <FolderDown className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">تنزيل المشروع</span>
+              <span className="hidden md:inline">{t('exportProjectBtn')}</span>
+            </button>
+
+            <button
+              type="button"
+              data-testid="toolbar-github-btn"
+              title={
+                githubLink
+                  ? t('githubLinkedTitle', githubLink.fullName, githubLink.branch, githubChanges.totalChanges)
+                  : t('githubBtnTitle')
+              }
+              onClick={() => setGithubOpen(true)}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs whitespace-nowrap shrink-0 transition-colors ${
+                githubLink
+                  ? 'bg-sky-500/15 text-sky-700 dark:text-sky-300 font-medium'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800/60'
+              }`}
+            >
+              <GitBranch className="w-3.5 h-3.5 text-sky-500" />
+              <span className="hidden md:inline">{t('githubBtn')}</span>
+              {githubLink && githubChanges.totalChanges > 0 && (
+                <span
+                  data-testid="toolbar-github-badge"
+                  className="px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[10px] font-mono tabular-nums font-bold"
+                >
+                  {githubChanges.totalChanges}
+                </span>
+              )}
             </button>
 
           </div>
@@ -1522,28 +1707,28 @@ export default function CodeLabIDE() {
           <div className="flex items-center gap-1 shrink-0">
             <button
               type="button"
-              title="بحث واستبدال (Ctrl+F)"
+              title={t('findTitle')}
               onClick={() => editorApiRef.current?.openFind()}
               className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800/60 whitespace-nowrap shrink-0"
             >
               <Search className="w-3.5 h-3.5" />
-              <span className="hidden lg:inline">بحث</span>
+              <span className="hidden lg:inline">{t('findBtn')}</span>
             </button>
 
             <button
               type="button"
-              title="تنسيق الكود"
+              title={t('formatTitle')}
               onClick={handleFormat}
               disabled={activeIsMedia}
               className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800/60 disabled:opacity-40 whitespace-nowrap shrink-0"
             >
               <Wand2 className="w-3.5 h-3.5" />
-              <span className="hidden lg:inline">تنسيق</span>
+              <span className="hidden lg:inline">{t('formatBtn')}</span>
             </button>
 
             <button
               type="button"
-              title="تقسيم شاشة المحرر (Ctrl+\)"
+              title={t('splitScreenTitle')}
               onClick={() => handleSplitGroup(activeGroupId)}
               disabled={Object.keys(files).length === 0 || editorGroups.length >= MAX_EDITOR_GROUPS}
               className={`inline-flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs transition-colors disabled:opacity-40 whitespace-nowrap shrink-0 ${
@@ -1557,17 +1742,28 @@ export default function CodeLabIDE() {
               ) : (
                 <Columns2 className="w-3.5 h-3.5" />
               )}
-              <span className="hidden lg:inline">تقسيم الشاشة</span>
+              <span className="hidden lg:inline">{t('splitScreenBtn')}</span>
             </button>
           </div>
         </div>
 
-        {/* Trailing Controls: Editor Settings Popover + Theme Toggle */}
+        {/* Trailing Controls: Language Switcher + Editor Settings Popover + Theme Toggle */}
         <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            data-testid="locale-toggle-btn"
+            title={t('langSwitchTitle')}
+            onClick={handleToggleLocale}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-200/70 dark:hover:bg-slate-800/60 whitespace-nowrap shrink-0 transition-colors"
+          >
+            <Globe className="w-3.5 h-3.5 text-sky-500" />
+            <span>{t('langSwitchLabel')}</span>
+          </button>
+
           <div className="relative" ref={settingsRef}>
             <button
               type="button"
-              title="إعدادات المحرر والأدوات"
+              title={t('editorSettingsTitle')}
               onClick={() => setSettingsOpen((v) => !v)}
               className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs transition-colors whitespace-nowrap shrink-0 ${
                 settingsOpen
@@ -1576,22 +1772,51 @@ export default function CodeLabIDE() {
               }`}
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">إعدادات المحرر</span>
+              <span className="hidden sm:inline">{t('editorSettings')}</span>
             </button>
 
             {settingsOpen && (
-              <div className="absolute left-0 top-full mt-2 w-64 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0f172a] shadow-xl p-3 z-50 space-y-3 text-xs">
+              <div className="absolute end-0 top-full mt-2 w-64 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0f172a] shadow-xl p-3 z-50 space-y-3 text-xs">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
-                  <span className="font-semibold text-slate-800 dark:text-slate-100">إعدادات المحرر</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-100">{t('editorSettings')}</span>
                   <span className="inline-flex items-center gap-1.5 text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
                     <LanguageIcon lang={activeLang} size={14} />
                     <span>{activeMeta.label}</span>
                   </span>
                 </div>
 
+                {/* Interface Language */}
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-600 dark:text-slate-300">{t('interfaceLanguage')}</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleSetLocale('ar')}
+                      className={`px-2 py-1 rounded-md text-xs transition-colors ${
+                        locale === 'ar'
+                          ? 'bg-sky-600 text-white font-semibold'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {t('arabicLabel')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSetLocale('en')}
+                      className={`px-2 py-1 rounded-md text-xs transition-colors ${
+                        locale === 'en'
+                          ? 'bg-sky-600 text-white font-semibold'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {t('englishLabel')}
+                    </button>
+                  </div>
+                </div>
+
                 {/* Font size */}
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-600 dark:text-slate-300">حجم الخط</span>
+                  <span className="text-slate-600 dark:text-slate-300">{t('fontSize')}</span>
                   <div className="flex items-center border border-slate-200 dark:border-slate-700 rounded-md overflow-hidden">
                     <button
                       type="button"
@@ -1615,7 +1840,7 @@ export default function CodeLabIDE() {
 
                 {/* Tab size */}
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-600 dark:text-slate-300">المسافة البادئة (Tab)</span>
+                  <span className="text-slate-600 dark:text-slate-300">{t('tabSize')}</span>
                   <div className="flex items-center gap-1">
                     {[2, 4].map((sz) => (
                       <button
@@ -1643,7 +1868,7 @@ export default function CodeLabIDE() {
                   >
                     <span className="flex items-center gap-2">
                       <WrapText className="w-3.5 h-3.5 text-slate-400" />
-                      <span>التفاف الأسطر</span>
+                      <span>{t('wordWrap')}</span>
                     </span>
                     {prefs.wordWrap && <Check className="w-3.5 h-3.5 text-sky-500" />}
                   </button>
@@ -1656,7 +1881,7 @@ export default function CodeLabIDE() {
                     >
                       <span className="flex items-center gap-2">
                         <RefreshCw className="w-3.5 h-3.5 text-slate-400" />
-                        <span>تحديث تلقائي للمعاينة</span>
+                        <span>{t('autoRun')}</span>
                       </span>
                       {prefs.autoRun && <Check className="w-3.5 h-3.5 text-emerald-500" />}
                     </button>
@@ -1669,7 +1894,7 @@ export default function CodeLabIDE() {
                   >
                     <span className="flex items-center gap-2">
                       <Layers className="w-3.5 h-3.5 text-slate-400" />
-                      <span>الخريطة المصغرة (Minimap)</span>
+                      <span>{t('minimapSetting')}</span>
                     </span>
                     {prefs.showMinimap !== false && <Check className="w-3.5 h-3.5 text-sky-500" />}
                   </button>
@@ -1681,7 +1906,7 @@ export default function CodeLabIDE() {
                   >
                     <span className="flex items-center gap-2">
                       <Keyboard className="w-3.5 h-3.5 text-slate-400" />
-                      <span>شريط اختصارات الكود</span>
+                      <span>{t('mobileBarSetting')}</span>
                     </span>
                     {prefs.showMobileBar && <Check className="w-3.5 h-3.5 text-sky-500" />}
                   </button>
@@ -1699,7 +1924,7 @@ export default function CodeLabIDE() {
                   >
                     <span className="flex items-center gap-2">
                       <Command className="w-3.5 h-3.5 text-slate-400" />
-                      <span>لوحة الأوامر</span>
+                      <span>{t('commandPalette')}</span>
                     </span>
                     <span className="text-[10px] font-mono text-slate-400">Ctrl+K</span>
                   </button>
@@ -1714,7 +1939,7 @@ export default function CodeLabIDE() {
                   >
                     <span className="flex items-center gap-2">
                       <Download className="w-3.5 h-3.5 text-slate-400" />
-                      <span>تحميل الملف الحالي</span>
+                      <span>{t('downloadCurrentFile')}</span>
                     </span>
                   </button>
                 </div>
@@ -1724,7 +1949,7 @@ export default function CodeLabIDE() {
 
           <button
             type="button"
-            title={prefs.theme === 'dark' ? 'الوضع الفاتح' : 'الوضع الداكن'}
+            title={prefs.theme === 'dark' ? t('lightThemeTitle') : t('darkThemeTitle')}
             onClick={() => setPrefs((p) => ({ ...p, theme: p.theme === 'dark' ? 'light' : 'dark' }))}
             className="p-1.5 rounded-md text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800/60 shrink-0"
           >
@@ -1739,27 +1964,27 @@ export default function CodeLabIDE() {
         {/* VS Code Activity Bar */}
         {!typingFullMobile && !focusMode && (
           <aside
-            aria-label="شريط الأنشطة"
-            className="hidden md:flex w-11 shrink-0 flex-col items-center justify-between py-1.5 bg-[#2c2c2c] dark:bg-[#333333] text-[#858585] select-none border-l border-[#e5e5e5] dark:border-[#252526]"
+            aria-label={t('activityBarAria')}
+            className="hidden md:flex w-11 shrink-0 flex-col items-center justify-between py-1.5 bg-[#2c2c2c] dark:bg-[#333333] text-[#858585] select-none border-e border-[#e5e5e5] dark:border-[#252526]"
           >
             <div className="flex flex-col items-center w-full gap-1">
               <button
                 type="button"
-                title="مستكشف الملفات (Ctrl+B)"
+                title={t('filesPanelTitle')}
                 onClick={toggleExplorer}
                 className={`relative w-full h-10 flex items-center justify-center transition-colors ${
                   prefs.showExplorer ? 'text-white' : 'hover:text-white'
                 }`}
               >
                 {prefs.showExplorer && (
-                  <span className="absolute right-0 inset-y-1.5 w-0.5 bg-white rounded-l" />
+                  <span className="absolute start-0 inset-y-1.5 w-0.5 bg-white rounded-e" />
                 )}
                 <Files className="w-5 h-5" />
               </button>
 
               <button
                 type="button"
-                title="فتح ملف سريع (Ctrl+P)"
+                title={t('quickOpenTitle')}
                 onClick={() => setQuickOpenOpen(true)}
                 className="w-full h-10 flex items-center justify-center hover:text-white transition-colors"
               >
@@ -1768,7 +1993,7 @@ export default function CodeLabIDE() {
 
               <button
                 type="button"
-                title="اختيار لغة برمجة"
+                title={t('chooseLangTitle')}
                 onClick={() => setLanguagesOpen(true)}
                 className="w-full h-10 flex items-center justify-center hover:text-white transition-colors"
               >
@@ -1777,7 +2002,7 @@ export default function CodeLabIDE() {
 
               <button
                 type="button"
-                title="قوالب المشاريع"
+                title={t('templatesTitle')}
                 onClick={() => setTemplatesOpen(true)}
                 className="w-full h-10 flex items-center justify-center hover:text-white transition-colors"
               >
@@ -1786,7 +2011,7 @@ export default function CodeLabIDE() {
 
               <button
                 type="button"
-                title="الطرفية المتكاملة (Ctrl+`)"
+                title={t('integratedTerminalTitle')}
                 onClick={() => {
                   setDockTab('terminal');
                   toggleDock();
@@ -1796,21 +2021,44 @@ export default function CodeLabIDE() {
                 }`}
               >
                 {prefs.showDock && (
-                  <span className="absolute right-0 inset-y-1.5 w-0.5 bg-white rounded-l" />
+                  <span className="absolute start-0 inset-y-1.5 w-0.5 bg-white rounded-e" />
                 )}
                 <Terminal className="w-5 h-5" />
               </button>
 
               <button
                 type="button"
-                title="المشكلات وفحص الكود"
+                title={t('problemsReviewTitle')}
                 onClick={() => setReviewOpen(true)}
                 className="relative w-full h-10 flex items-center justify-center hover:text-white transition-colors"
               >
                 <AlertTriangle className="w-5 h-5" />
                 {problems.length > 0 && (
-                  <span className="absolute top-1.5 left-1.5 min-w-[16px] h-4 px-1 rounded-full bg-[#007acc] text-white text-[10px] font-mono leading-4 text-center">
+                  <span className="absolute top-1.5 end-1.5 min-w-[16px] h-4 px-1 rounded-full bg-[#007acc] text-white text-[10px] font-mono leading-4 text-center">
                     {problems.length}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                data-testid="activity-github-btn"
+                title={t('sourceControlTitle')}
+                onClick={() => setGithubOpen(true)}
+                className={`relative w-full h-10 flex items-center justify-center transition-colors ${
+                  githubOpen ? 'text-white' : 'hover:text-white'
+                }`}
+              >
+                {githubOpen && (
+                  <span className="absolute start-0 inset-y-1.5 w-0.5 bg-white rounded-e" />
+                )}
+                <GitBranch className="w-5 h-5" />
+                {githubLink && githubChanges.totalChanges > 0 && (
+                  <span
+                    data-testid="activity-github-badge"
+                    className="absolute top-1.5 end-1.5 min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-slate-950 font-bold text-[10px] font-mono leading-4 text-center"
+                  >
+                    {githubChanges.totalChanges}
                   </span>
                 )}
               </button>
@@ -1819,7 +2067,7 @@ export default function CodeLabIDE() {
             <div className="flex flex-col items-center w-full gap-1">
               <button
                 type="button"
-                title="لوحة الأوامر (Ctrl+K)"
+                title={t('commandPaletteTitle')}
                 onClick={() => setPaletteOpen(true)}
                 className="w-full h-10 flex items-center justify-center hover:text-white transition-colors"
               >
@@ -1827,7 +2075,7 @@ export default function CodeLabIDE() {
               </button>
               <button
                 type="button"
-                title="إعدادات المحرر"
+                title={t('activitySettingsTitle')}
                 onClick={() => setSettingsOpen((v) => !v)}
                 className={`w-full h-10 flex items-center justify-center transition-colors ${
                   settingsOpen ? 'text-white' : 'hover:text-white'
@@ -1846,11 +2094,12 @@ export default function CodeLabIDE() {
               onClick={() => setPrefs((p) => ({ ...p, showExplorer: false }))}
               className="fixed inset-0 z-20 bg-slate-950/50 md:hidden"
             />
-            <div className="absolute inset-y-0 right-0 z-30 flex md:static md:z-auto shadow-xl md:shadow-none max-w-[85vw]">
+            <div className="absolute inset-y-0 start-0 z-30 flex md:static md:z-auto shadow-xl md:shadow-none max-w-[85vw]">
               <FileExplorer
                 files={files}
                 activeFile={activeFile}
                 projectName={projectName}
+                gitStatusMap={githubLink ? githubChanges.statusMap : undefined}
                 onRenameProject={handleRenameProject}
                 onSelectFile={(p) => {
                   handleSelectFile(p);
@@ -1950,7 +2199,7 @@ export default function CodeLabIDE() {
                     <div
                       role="separator"
                       aria-orientation={splitDirection === 'vertical' ? 'horizontal' : 'vertical'}
-                      aria-label="تغيير حجم أقسام المحرر"
+                      aria-label={t('resizeSplitAria')}
                       onPointerDown={(e) => startSplitResize(idx, e)}
                       className={`shrink-0 transition-colors select-none z-10 ${
                         splitDirection === 'vertical'
@@ -1983,7 +2232,7 @@ export default function CodeLabIDE() {
                     }`}
                   >
                     <Terminal className="w-3.5 h-3.5" />
-                    <span>الطرفية Terminal</span>
+                    <span>{t('terminalTab')}</span>
                   </button>
 
                   <button
@@ -1996,7 +2245,7 @@ export default function CodeLabIDE() {
                     }`}
                   >
                     <Command className="w-3.5 h-3.5" />
-                    <span>وحدة التحكم Console</span>
+                    <span>{t('consoleTab')}</span>
                     {consoleLogs.length > 0 && (
                       <span className="font-mono tabular-nums text-[11px] text-slate-400">({consoleLogs.length})</span>
                     )}
@@ -2012,7 +2261,7 @@ export default function CodeLabIDE() {
                     }`}
                   >
                     <AlertTriangle className="w-3.5 h-3.5" />
-                    <span>المشكلات</span>
+                    <span>{t('problemsTab')}</span>
                     {problems.length > 0 && (
                       <span className="font-mono tabular-nums text-[11px] text-rose-600 dark:text-rose-400">
                         ({problems.length})
@@ -2025,7 +2274,7 @@ export default function CodeLabIDE() {
                   {dockTab === 'console' && (
                     <button
                       type="button"
-                      title="مسح السجل"
+                      title={t('clearLogTitle')}
                       onClick={() => setConsoleLogs([])}
                       className="p-1 rounded text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800"
                     >
@@ -2034,7 +2283,7 @@ export default function CodeLabIDE() {
                   )}
                   <button
                     type="button"
-                    title={dockExpanded ? 'تصغير اللوحة' : 'توسيع اللوحة'}
+                    title={dockExpanded ? t('shrinkDockTitle') : t('expandDockTitle')}
                     onClick={() => setDockExpanded((v) => !v)}
                     className="p-1 rounded text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800"
                   >
@@ -2042,7 +2291,7 @@ export default function CodeLabIDE() {
                   </button>
                   <button
                     type="button"
-                    title="إغلاق اللوحة"
+                    title={t('closeDockTitle')}
                     onClick={() => setPrefs((p) => ({ ...p, showDock: false }))}
                     className="p-1 rounded text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800"
                   >
@@ -2066,7 +2315,7 @@ export default function CodeLabIDE() {
                   <div className="flex-1 overflow-auto p-2.5 space-y-1 font-mono text-xs" dir="ltr">
                     {consoleLogs.length === 0 ? (
                       <div className="text-slate-400 dark:text-slate-500">
-                        Console ready. Run your code or evaluate JavaScript expressions below.
+                        {t('consoleReady')}
                       </div>
                     ) : (
                       consoleLogs.map((entry) => (
@@ -2097,7 +2346,7 @@ export default function CodeLabIDE() {
                     <input
                       value={replInput}
                       onChange={(e) => setReplInput(e.target.value)}
-                      placeholder="Evaluate JS expression (e.g. [1,2,3].map(x => x * 2))"
+                      placeholder={t('replPlaceholder')}
                       className="flex-1 bg-transparent font-mono text-xs text-slate-900 dark:text-slate-100 outline-none"
                     />
                   </form>
@@ -2105,7 +2354,7 @@ export default function CodeLabIDE() {
               ) : (
                 <div className="flex-1 overflow-auto divide-y divide-slate-200 dark:divide-slate-800">
                   {problems.length === 0 ? (
-                    <div className="text-xs text-slate-500 dark:text-slate-400 p-4">لا توجد أخطاء مكتشفة في ملفات المشروع.</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400 p-4">{t('noProblemsFound')}</div>
                   ) : (
                     problems.map((p, idx) => (
                       <button
@@ -2152,12 +2401,12 @@ export default function CodeLabIDE() {
                     editorGroups.length > 1 && splitDirection === 'horizontal'
                       ? 'lg:w-[32%] xl:w-[33%] lg:max-w-[460px]'
                       : 'lg:w-[38%] xl:w-[40%] lg:max-w-[560px]'
-                  } border-r border-[#e5e5e5] dark:border-[#2b2b2b] bg-[#f3f3f3] dark:bg-[#252526]`
+                  } border-s border-[#e5e5e5] dark:border-[#2b2b2b] bg-[#f3f3f3] dark:bg-[#252526]`
             } flex flex-col shrink-0`}
           >
             <div className="h-9 shrink-0 flex items-center justify-between gap-2 px-3 border-b border-[#e5e5e5] dark:border-[#2b2b2b] bg-[#ececec] dark:bg-[#252526]">
               <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 min-w-0">
-                <span className="font-semibold shrink-0">المعاينة الحية</span>
+                <span className="font-semibold shrink-0">{t('livePreview')}</span>
                 <span className="text-slate-400">·</span>
                 <span className="font-mono text-[11px] text-slate-500 truncate max-w-[140px]" dir="ltr">
                   {activeFile}
@@ -2167,7 +2416,7 @@ export default function CodeLabIDE() {
               <div className="flex items-center gap-1 shrink-0">
                 <button
                   type="button"
-                  title="سطح المكتب"
+                  title={t('desktopViewport')}
                   onClick={() => setPreviewViewport('desktop')}
                   className={`hidden sm:inline-flex p-1.5 rounded ${
                     previewViewport === 'desktop'
@@ -2179,7 +2428,7 @@ export default function CodeLabIDE() {
                 </button>
                 <button
                   type="button"
-                  title="تابلت (768px)"
+                  title={t('tabletViewport')}
                   onClick={() => setPreviewViewport('tablet')}
                   className={`hidden sm:inline-flex p-1.5 rounded ${
                     previewViewport === 'tablet'
@@ -2191,7 +2440,7 @@ export default function CodeLabIDE() {
                 </button>
                 <button
                   type="button"
-                  title="موبايل (375px)"
+                  title={t('mobileViewport')}
                   onClick={() => setPreviewViewport('mobile')}
                   className={`hidden sm:inline-flex p-1.5 rounded ${
                     previewViewport === 'mobile'
@@ -2203,7 +2452,7 @@ export default function CodeLabIDE() {
                 </button>
                 <button
                   type="button"
-                  title="تحديث المعاينة"
+                  title={t('refreshPreview')}
                   onClick={() => doRun(false)}
                   className="p-1.5 rounded text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
@@ -2213,14 +2462,14 @@ export default function CodeLabIDE() {
                   href={externalPreviewUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  title="فتح في تبويب متصفح مستقل"
+                  title={t('openExternalPreview')}
                   className="p-1.5 rounded text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
                 </a>
                 <button
                   type="button"
-                  title={previewFullscreen ? 'تصغير' : 'ملء الشاشة'}
+                  title={previewFullscreen ? t('minimizeTitle') : t('fullscreenTitle')}
                   onClick={() => setPreviewFullscreen((v) => !v)}
                   className="p-1.5 rounded text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
@@ -2228,7 +2477,7 @@ export default function CodeLabIDE() {
                 </button>
                 <button
                   type="button"
-                  title="إغلاق المعاينة"
+                  title={t('closePreviewTitle')}
                   onClick={() => {
                     setPreviewFullscreen(false);
                     setPrefs((p) => ({ ...p, showPreview: false }));
@@ -2243,9 +2492,9 @@ export default function CodeLabIDE() {
             <div className="flex-1 min-h-0 p-2 sm:p-3 flex items-center justify-center overflow-auto bg-slate-200/70 dark:bg-[#090d16]">
               <iframe
                 key={previewRev}
-                title="Live Preview"
+                title={t('livePreview')}
                 sandbox="allow-scripts allow-modals"
-                srcDoc={previewDoc || buildWebPreviewDoc(files, activeFile, true)}
+                srcDoc={previewDoc || buildWebPreviewDoc(files, activeFile, true, locale)}
                 className="h-full bg-white rounded-lg border border-slate-300 dark:border-slate-700 shadow-sm transition-all"
                 style={{
                   width:
@@ -2269,12 +2518,34 @@ export default function CodeLabIDE() {
           className="h-6 shrink-0 flex items-center justify-between px-3 bg-[#007acc] text-[11px] font-mono tabular-nums text-white select-none"
         >
           <div className="flex items-center gap-2.5 min-w-0">
+            <button
+              type="button"
+              data-testid="statusbar-github-btn"
+              title={t('githubStatusTitle')}
+              onClick={() => setGithubOpen(true)}
+              className="inline-flex items-center gap-1 hover:bg-white/15 px-1.5 py-0.5 rounded-sm transition-colors max-w-[320px] truncate shrink-0"
+            >
+              <GitBranch className="w-3 h-3 shrink-0" />
+              <span className="truncate">
+                {githubLink ? `${githubLink.fullName} (${githubLink.branch})` : t('githubBtn')}
+              </span>
+              {githubLink && githubChanges.totalChanges > 0 && (
+                <span
+                  dir={dir}
+                  data-testid="statusbar-github-changes"
+                  className="px-1 rounded bg-white/20 text-[10px] font-semibold shrink-0"
+                >
+                  {t('changesBadge', githubChanges.totalChanges)}
+                </span>
+              )}
+            </button>
+            <span className="opacity-60">|</span>
             <span className="truncate">
               Ln {cursor.line}, Col {cursor.col}
-              {cursor.selected > 0 ? ` (${cursor.selected} selected)` : ''}
+              {cursor.selected > 0 ? t('selectedSuffix', cursor.selected) : ''}
             </span>
             <span className="hidden sm:inline opacity-60">|</span>
-            <span className="hidden sm:inline">Spaces: {prefs.tabSize}</span>
+            <span className="hidden sm:inline">{t('spacesLabel', prefs.tabSize)}</span>
             <span className="hidden md:inline opacity-60">|</span>
             <span className="hidden md:inline">UTF-8</span>
             <span className="opacity-60">|</span>
@@ -2282,15 +2553,15 @@ export default function CodeLabIDE() {
           </div>
 
           <div className="flex items-center gap-2.5 shrink-0">
-            <span className="hidden sm:inline text-[11px] font-sans opacity-95">
-              Designed by{' '}
+            <span className="hidden sm:inline text-[11px] font-sans opacity-95" dir={dir}>
+              {t('designedBy')}{' '}
               <a
                 href="https://mahmoud-smoky.vercel.app/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="font-semibold underline underline-offset-2 hover:text-white/80"
               >
-                Mahmoud Medhat
+                {t('devName')}
               </a>
             </span>
             <span className="hidden sm:inline opacity-60">|</span>
@@ -2298,23 +2569,26 @@ export default function CodeLabIDE() {
             <span className="hidden sm:inline opacity-60">|</span>
             <button
               type="button"
-              title="عرض تقرير فحص وتقييم الكود (Code Review)"
+              title={t('problemsStatusTitle')}
+              dir={dir}
               onClick={() => {
                 setReviewOpen(true);
               }}
               className="hover:bg-white/15 px-1.5 py-0.5 rounded-sm transition-colors"
             >
-              {problems.length > 0 ? `⚠ ${problems.length} مشكلة` : '✓ 0 مشاكل'}
+              {problems.length > 0 ? t('problemsCount', problems.length) : t('noProblemsStatus')}
             </button>
           </div>
         </footer>
       )}
 
+      <OfflineIndicator />
+
       {/* Non-intrusive floating toast notification */}
       {notice && (
         <div
           role="status"
-          className="fixed bottom-10 left-4 z-50 px-3.5 py-2 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-xs font-medium pointer-events-none"
+          className="fixed bottom-10 end-4 z-50 px-3.5 py-2 rounded-lg shadow-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-xs font-medium pointer-events-none"
         >
           {notice}
         </div>
@@ -2350,6 +2624,23 @@ export default function CodeLabIDE() {
       <ShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <CodeReviewModal open={reviewOpen} onClose={() => setReviewOpen(false)} files={files} onSelectFile={handleSelectFile} />
       <QuickOpenModal open={quickOpenOpen} onClose={() => setQuickOpenOpen(false)} files={files} onSelectFile={handleSelectFile} />
+      <GitHubPushModal
+        open={githubOpen}
+        onClose={() => setGithubOpen(false)}
+        projectName={projectName}
+        files={files}
+        githubUser={githubUser}
+        githubSessionToken={githubSessionToken}
+        githubLink={githubLink}
+        changes={githubChanges}
+        onConnectGitHub={handleConnectGitHub}
+        onDisconnectGitHub={handleDisconnectGitHub}
+        onLinkRepository={handleLinkRepository}
+        onPullRepository={handlePullRepository}
+        onUnlinkRepository={handleUnlinkRepository}
+        onChangeLinkedBranch={handleChangeLinkedBranch}
+        onPushSuccess={handleGitHubPushSuccess}
+      />
       <input
         ref={zipInputRef}
         type="file"
@@ -2362,5 +2653,6 @@ export default function CodeLabIDE() {
         }}
       />
     </div>
+    </I18nProvider>
   );
 }

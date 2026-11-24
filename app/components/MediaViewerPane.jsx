@@ -3,8 +3,10 @@
 import { useState } from 'react';
 import { Copy, Check, Code2, ImageIcon, Film, Music } from 'lucide-react';
 import { formatBytes } from '../lib/storage';
+import { useI18n } from '../lib/LocaleContext';
 
 export default function MediaViewerPane({ path, media, onInsertIntoHtml }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   const [dimensions, setDimensions] = useState(null);
 
@@ -68,7 +70,7 @@ export default function MediaViewerPane({ path, media, onInsertIntoHtml }) {
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
           >
             {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copied ? 'تم النسخ' : 'نسخ كود HTML'}</span>
+            <span>{copied ? t('copied') : t('copyHtml')}</span>
           </button>
           {onInsertIntoHtml && (
             <button
@@ -77,7 +79,7 @@ export default function MediaViewerPane({ path, media, onInsertIntoHtml }) {
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white transition-colors"
             >
               <Code2 className="w-3.5 h-3.5" />
-              <span>إدراج في HTML</span>
+              <span>{t('insertInHtml')}</span>
             </button>
           )}
         </div>

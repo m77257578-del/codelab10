@@ -6,8 +6,10 @@ import { ALL_LANGUAGE_OPTIONS, DEV, WORKSPACE_TEMPLATES, detectLang } from '../l
 import { diagnose } from '../lib/diagnostics';
 import { sanitizeProjectName } from '../lib/storage';
 import LanguageIcon from './LanguageIcon';
+import { useI18n } from '../lib/LocaleContext';
 
 function ModalFrame({ title, onClose, maxWidth = 'max-w-xl', children }) {
+  const { t } = useI18n();
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/65" onClick={onClose}>
       <div
@@ -19,7 +21,7 @@ function ModalFrame({ title, onClose, maxWidth = 'max-w-xl', children }) {
           <button
             type="button"
             onClick={onClose}
-            aria-label="إغلاق"
+            aria-label={t('closeAria')}
             className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
           >
             <X className="w-4 h-4" />
@@ -32,6 +34,7 @@ function ModalFrame({ title, onClose, maxWidth = 'max-w-xl', children }) {
 }
 
 export function ExportProjectModal({ open, onClose, projectName, onRenameProject, fileCount, onDownloadZip, onDownloadJson }) {
+  const { t } = useI18n();
   const [nameInput, setNameInput] = useState(projectName || 'my-codelab-project');
 
   useEffect(() => {
@@ -42,11 +45,11 @@ export function ExportProjectModal({ open, onClose, projectName, onRenameProject
   const safe = sanitizeProjectName(nameInput);
 
   return (
-    <ModalFrame title="تسمية وتنزيل ملف المشروع" onClose={onClose} maxWidth="max-w-md">
+    <ModalFrame title={t('exportModalTitle')} onClose={onClose} maxWidth="max-w-md">
       <div className="space-y-4">
         <div>
           <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-            اسم مجلد / ملف المشروع عند التنزيل
+            {t('exportFolderLabel')}
           </label>
           <input
             autoFocus
@@ -60,7 +63,7 @@ export function ExportProjectModal({ open, onClose, projectName, onRenameProject
             className="w-full px-3 py-2 text-sm font-mono rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 outline-none focus:border-sky-500"
           />
           <div className="mt-1.5 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-            <span>عدد الملفات المضمنة: {fileCount}</span>
+            <span>{t('includedFilesCount', fileCount)}</span>
             <span className="font-mono" dir="ltr">
               {safe}.zip
             </span>
@@ -80,8 +83,8 @@ export function ExportProjectModal({ open, onClose, projectName, onRenameProject
             <div className="flex items-center gap-2.5">
               <Archive className="w-4 h-4 shrink-0" />
               <div className="text-start">
-                <div>تنزيل المشروع كاملاً (ZIP)</div>
-                <div className="text-[11px] font-normal text-sky-100">مجلد باسم المشروع يحتوي على كل الأكواد والصور والفيديو</div>
+                <div>{t('downloadZipTitle')}</div>
+                <div className="text-[11px] font-normal text-sky-100">{t('downloadZipDesc')}</div>
               </div>
             </div>
             <Download className="w-4 h-4 shrink-0" />
@@ -98,7 +101,7 @@ export function ExportProjectModal({ open, onClose, projectName, onRenameProject
           >
             <div className="flex items-center gap-2.5">
               <FileJson className="w-4 h-4 text-amber-500 shrink-0" />
-              <span>تنزيل نسخة مشروع CodeLab (.json) لإعادة فتحها لاحقاً</span>
+              <span>{t('downloadJsonLabel')}</span>
             </div>
             <Download className="w-3.5 h-3.5 shrink-0" />
           </button>
@@ -108,15 +111,10 @@ export function ExportProjectModal({ open, onClose, projectName, onRenameProject
   );
 }
 
-const LANG_CATEGORIES = [
-  { id: 'all', label: 'الكل' },
-  { id: 'web', label: 'الويب وPHP' },
-  { id: 'data', label: 'SQL وJSON والبيانات' },
-  { id: 'systems', label: 'البرمجة والأنظمة' },
-  { id: 'scripting', label: 'السكربت والتكوين' },
-];
+const LANG_CATEGORY_IDS = ['all', 'web', 'data', 'systems', 'scripting'];
 
 export function LanguagesModal({ open, onClose, onCreateLanguageFile }) {
+  const { t, dict } = useI18n();
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
   const filtered = useMemo(() => {
@@ -131,32 +129,32 @@ export function LanguagesModal({ open, onClose, onCreateLanguageFile }) {
   if (!open) return null;
 
   return (
-    <ModalFrame title={`إنشاء ملف بلغة برمجة (${ALL_LANGUAGE_OPTIONS.length} لغة مدعومة)`} onClose={onClose} maxWidth="max-w-2xl">
+    <ModalFrame title={t('languagesModalTitle', ALL_LANGUAGE_OPTIONS.length)} onClose={onClose} maxWidth="max-w-2xl">
       <div className="space-y-3 mb-4">
         <div className="relative">
-          <Search className="w-4 h-4 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
+          <Search className="w-4 h-4 text-slate-400 absolute start-3 top-2.5 pointer-events-none" />
           <input
             autoFocus
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="ابحث عن لغة: JSON, SQL, PHP, Python, Rust, Go, Swift, Kotlin..."
-            className="w-full pr-9 pl-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 outline-none focus:border-sky-500"
+            placeholder={t('searchLangPlaceholder')}
+            className="w-full ps-9 pe-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 outline-none focus:border-sky-500"
           />
         </div>
 
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
-          {LANG_CATEGORIES.map((cat) => (
+          {LANG_CATEGORY_IDS.map((catId) => (
             <button
-              key={cat.id}
+              key={catId}
               type="button"
-              onClick={() => setCategory(cat.id)}
+              onClick={() => setCategory(catId)}
               className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap shrink-0 transition-colors ${
-                category === cat.id
+                category === catId
                   ? 'bg-sky-600 text-white'
                   : 'bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800'
               }`}
             >
-              {cat.label}
+              {dict.langCategories[catId]}
             </button>
           ))}
         </div>
@@ -190,66 +188,55 @@ export function LanguagesModal({ open, onClose, onCreateLanguageFile }) {
 }
 
 export function TemplatesModal({ open, onClose, onLoadTemplate }) {
+  const { t, dict } = useI18n();
   if (!open) return null;
   return (
-    <ModalFrame title="قوالب المشاريع الجاهزة" onClose={onClose}>
+    <ModalFrame title={t('templatesModalTitle')} onClose={onClose}>
       <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-        اختر قالب مساحة عمل جديد للبدء الفوري. سيستبدل القالب الملفات الحالية في مساحة العمل.
+        {t('templatesModalDesc')}
       </p>
       <div className="space-y-2.5">
-        {WORKSPACE_TEMPLATES.map((tpl) => (
-          <button
-            key={tpl.id}
-            type="button"
-            onClick={() => {
-              onLoadTemplate(tpl);
-              onClose();
-            }}
-            className="w-full text-start p-3.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:border-sky-500 dark:hover:border-sky-500 bg-slate-50 dark:bg-slate-900/60 transition-colors"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <FolderGit2 className="w-4 h-4 text-sky-500 shrink-0" />
-                <span className="font-semibold text-sm text-slate-900 dark:text-slate-100">{tpl.name}</span>
+        {WORKSPACE_TEMPLATES.map((tpl) => {
+          const localized = dict.templates?.[tpl.id];
+          return (
+            <button
+              key={tpl.id}
+              type="button"
+              onClick={() => {
+                onLoadTemplate(tpl);
+                onClose();
+              }}
+              className="w-full text-start p-3.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:border-sky-500 dark:hover:border-sky-500 bg-slate-50 dark:bg-slate-900/60 transition-colors"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <FolderGit2 className="w-4 h-4 text-sky-500 shrink-0" />
+                  <span className="font-semibold text-sm text-slate-900 dark:text-slate-100">
+                    {localized?.name || tpl.name}
+                  </span>
+                </div>
+                <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
+                  {t('filesBadgeCount', Object.keys(tpl.files).length)}
+                </span>
               </div>
-              <span className="text-xs font-mono text-slate-500 dark:text-slate-400" dir="ltr">
-                {Object.keys(tpl.files).length} files
-              </span>
-            </div>
-            <p className="text-xs text-slate-600 dark:text-slate-400 mt-1.5 leading-relaxed">{tpl.description}</p>
-          </button>
-        ))}
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-1.5 leading-relaxed">
+                {localized?.description || tpl.description}
+              </p>
+            </button>
+          );
+        })}
       </div>
     </ModalFrame>
   );
 }
 
-const SHORTCUTS = [
-  ['Ctrl / Cmd + Enter', 'تشغيل الكود وتحديث المعاينة'],
-  ['Ctrl / Cmd + K', 'فتح لوحة الأوامر والبحث السريع عن الملفات'],
-  ['Ctrl / Cmd + P', 'فتح ملف سريع (Quick Open)'],
-  ['Ctrl / Cmd + F', 'البحث والاستبدال داخل الملف الحالي'],
-  ['Ctrl / Cmd + D', 'تحديد التكرار التالي للكلمة (Multi-cursor)'],
-  ['Ctrl / Cmd + Shift + L', 'تحديد جميع تكرارات الكلمة دفعة واحدة'],
-  ['Alt + ↑ / ↓', 'نقل السطر الحالي للأعلى أو الأسفل'],
-  ['Shift + Alt + ↓', 'تكرار السطر الحالي للأسفل'],
-  ['Ctrl / Cmd + Shift + K', 'حذف السطر الحالي بالكامل'],
-  ['Ctrl + Space', 'إظهار قائمة الإكمال التلقائي (IntelliSense)'],
-  ['Ctrl / Cmd + B', 'إظهار أو إخفاء مستكشف الملفات'],
-  ['Ctrl / Cmd + \\', 'تقسيم شاشة المحرر لفتح أكثر من ملف'],
-  ['Ctrl / Cmd + J', 'إظهار أو إخفاء اللوحة السفلية (Terminal / Console)'],
-  ['Ctrl / Cmd + `', 'فتح أو إخفاء الطرفية المتكاملة (Terminal)'],
-  ['Ctrl / Cmd + /', 'تفعيل أو تعطيل التعليق للأسطر المحددة'],
-  ['Alt + Click', 'إضافة مؤشر كتابة متعدد (Multi-cursor)'],
-  ['Tab / Shift + Tab', 'قبول الإكمال أو زيادة/تقليل المسافة البادئة'],
-];
-
 export function ShortcutsModal({ open, onClose }) {
+  const { t, dict } = useI18n();
   if (!open) return null;
   return (
-    <ModalFrame title="اختصارات لوحة المفاتيح" onClose={onClose}>
+    <ModalFrame title={t('shortcutsModalTitle')} onClose={onClose}>
       <div className="divide-y divide-slate-200 dark:divide-slate-800">
-        {SHORTCUTS.map(([keys, desc]) => (
+        {dict.shortcutsList.map(([keys, desc]) => (
           <div key={keys} className="flex items-center justify-between gap-4 py-2.5 text-sm">
             <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300">
               <Keyboard className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -269,20 +256,21 @@ export function ShortcutsModal({ open, onClose }) {
 }
 
 export function DeveloperModal({ open, onClose }) {
+  const { t } = useI18n();
   if (!open) return null;
   return (
-    <ModalFrame title="عن المطور" onClose={onClose}>
+    <ModalFrame title={t('developerModalTitle')} onClose={onClose}>
       <div className="space-y-4">
         <div>
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{DEV.name}</h3>
-          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 leading-7">{DEV.bio}</p>
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{t('devName')}</h3>
+          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 leading-7">{t('devBio')}</p>
         </div>
 
         <div className="text-xs text-slate-500 dark:text-slate-400 flex flex-wrap gap-x-2 gap-y-1">
-          {DEV.tech.map((t, idx) => (
-            <span key={t}>
-              {idx > 0 && <span className="ml-2 text-slate-400">·</span>}
-              <span className="font-mono text-slate-700 dark:text-slate-300">{t}</span>
+          {DEV.tech.map((techName, idx) => (
+            <span key={techName}>
+              {idx > 0 && <span className="me-2 text-slate-400">·</span>}
+              <span className="font-mono text-slate-700 dark:text-slate-300">{techName}</span>
             </span>
           ))}
         </div>
@@ -298,7 +286,7 @@ export function DeveloperModal({ open, onClose }) {
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
           >
             <MessageCircle className="w-3.5 h-3.5" />
-            <span>تواصل عبر واتساب</span>
+            <span>{t('contactWhatsapp')}</span>
           </a>
         </div>
       </div>
@@ -307,6 +295,7 @@ export function DeveloperModal({ open, onClose }) {
 }
 
 export function CodeReviewModal({ open, onClose, files, onSelectFile }) {
+  const { locale, t, dict } = useI18n();
   if (!open) return null;
 
   const allProblems = [];
@@ -316,7 +305,7 @@ export function CodeReviewModal({ open, onClose, files, onSelectFile }) {
     if (typeof content !== 'string') continue;
     totalLines += content.split('\n').length;
     const lang = detectLang(path);
-    const diags = diagnose(content, lang);
+    const diags = diagnose(content, lang, locale);
     for (const d of diags) {
       allProblems.push({ ...d, file: path });
     }
@@ -331,29 +320,29 @@ export function CodeReviewModal({ open, onClose, files, onSelectFile }) {
   const gradeColor = score >= 80 ? 'text-emerald-500 bg-emerald-500/10' : score >= 60 ? 'text-amber-500 bg-amber-500/10' : 'text-rose-500 bg-rose-500/10';
 
   return (
-    <ModalFrame title="تقرير تقييم وفحص جودة الكود (Code Review & Evaluation)" onClose={onClose} maxWidth="max-w-2xl">
+    <ModalFrame title={t('codeReviewTitle')} onClose={onClose} maxWidth="max-w-2xl">
       <div className="space-y-5 text-xs sm:text-sm">
         {/* Score & Summary Card */}
         <div className="flex items-center justify-between p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/85">
           <div className="space-y-1">
-            <div className="text-xs text-slate-500 dark:text-slate-400">تقييم جودة المشروع الشامل</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">{t('projectQualityLabel')}</div>
             <div className="text-2xl font-bold font-mono text-slate-900 dark:text-slate-100 flex items-center gap-2">
               <span>{score} / 100</span>
               <span className={`px-2.5 py-0.5 rounded-lg text-sm font-bold ${gradeColor}`}>{grade}</span>
             </div>
             <div className="text-[11px] text-slate-500 dark:text-slate-400">
-              {errorCount === 0 && warningCount === 0 ? 'الكود ممتاز وخالٍ من الأخطاء والتحذيرات الظاهرة.' : `تم رصد ${errorCount} أخطاء و ${warningCount} تحذيرات تحتاج مراجعة.`}
+              {errorCount === 0 && warningCount === 0 ? t('excellentCode') : t('issuesFound', errorCount, warningCount)}
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3 text-center font-mono">
             <div className="p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
               <div className="text-base font-bold text-sky-600 dark:text-sky-400">{fileCount}</div>
-              <div className="text-[10px] text-slate-500">الملفات</div>
+              <div className="text-[10px] text-slate-500">{t('filesStat')}</div>
             </div>
             <div className="p-2.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
               <div className="text-base font-bold text-emerald-600 dark:text-emerald-400">{totalLines}</div>
-              <div className="text-[10px] text-slate-500">إجمالي الأسطر</div>
+              <div className="text-[10px] text-slate-500">{t('totalLinesStat')}</div>
             </div>
           </div>
         </div>
@@ -363,16 +352,16 @@ export function CodeReviewModal({ open, onClose, files, onSelectFile }) {
           <div className="flex items-center justify-between font-semibold text-slate-800 dark:text-slate-200">
             <span className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-amber-500" />
-              <span>مشكلات واقتراحات الفحص ({allProblems.length})</span>
+              <span>{t('problemsHeader', allProblems.length)}</span>
             </span>
-            <span className="text-xs font-normal text-slate-500">مثل لوحة Problems في VS Code</span>
+            <span className="text-xs font-normal text-slate-500">{t('problemsHint')}</span>
           </div>
 
           <div className="max-h-56 overflow-y-auto space-y-1.5 border border-slate-200 dark:border-slate-800 rounded-lg p-2 bg-white dark:bg-[#0b1120]">
             {allProblems.length === 0 ? (
               <div className="py-8 text-center text-slate-500 dark:text-slate-400 flex flex-col items-center justify-center gap-2">
                 <CheckCircle2 className="w-8 h-8 text-emerald-500" />
-                <span>لا توجد مشكلات أو أخطاء نحوية في ملفات المشروع!</span>
+                <span>{t('noSyntaxIssues')}</span>
               </div>
             ) : (
               allProblems.map((prob, idx) => (
@@ -388,12 +377,12 @@ export function CodeReviewModal({ open, onClose, files, onSelectFile }) {
                     <div className="flex items-center gap-2 font-mono text-xs text-sky-600 dark:text-sky-400">
                       <FileText className="w-3.5 h-3.5 shrink-0" />
                       <span className="truncate">{prob.file}</span>
-                      <span className="text-slate-400">:سطر {prob.line}</span>
+                      <span className="text-slate-400">{t('lineLabel', prob.line)}</span>
                     </div>
                     <div className="text-slate-800 dark:text-slate-200 font-medium">{prob.why}</div>
-                    <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-mono">💡 مقترح التصحيح: {prob.fix}</div>
+                    <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-mono">{t('fixSuggestion', prob.fix)}</div>
                   </div>
-                  <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-sky-500 shrink-0 self-center" />
+                  <ArrowRight className={`w-4 h-4 text-slate-400 group-hover:text-sky-500 shrink-0 self-center ${locale === 'ar' ? 'rotate-180' : ''}`} />
                 </div>
               ))
             )}
@@ -404,13 +393,12 @@ export function CodeReviewModal({ open, onClose, files, onSelectFile }) {
         <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
           <div className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-sky-500" />
-            <span>توصيات أفضل الممارسات الأمنية والبنائية</span>
+            <span>{t('bestPracticesTitle')}</span>
           </div>
           <ul className="space-y-1.5 text-xs text-slate-600 dark:text-slate-400 list-disc list-inside leading-relaxed">
-            <li>استخدم أداة تنسيق الكود (Format) بانتظام للحفاظ على وضوح وقراءة الأكواد.</li>
-            <li>تأكد من إغلاق كافة الأقواس ووسوم HTML بشكل صحيح لتجنب أخطاء التشغيل.</li>
-            <li>قم بتسمية الملفات والمتغيرات بأسماء واضحة ودلالية لتسهيل الصيانة.</li>
-            <li>مشروعك جاهز للعمل بدون إنترنت وحفظ محلي بالكامل في المتصفح.</li>
+            {dict.bestPractices.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
           </ul>
         </div>
       </div>

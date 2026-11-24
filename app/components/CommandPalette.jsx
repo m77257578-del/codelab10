@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { FileCode2, Terminal, Search } from 'lucide-react';
+import { useI18n } from '../lib/LocaleContext';
 
 export default function CommandPalette({ open, onClose, files, onSelectFile, commands }) {
+  const { dir, t } = useI18n();
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -22,7 +24,7 @@ export default function CommandPalette({ open, onClose, files, onSelectFile, com
         id: `file:${path}`,
         kind: 'file',
         label: path,
-        hint: 'فتح الملف',
+        hint: t('openFileHint'),
         action: () => onSelectFile(path),
       }));
     const cmdItems = commands
@@ -35,7 +37,7 @@ export default function CommandPalette({ open, onClose, files, onSelectFile, com
         action: c.action,
       }));
     return [...cmdItems, ...fileItems];
-  }, [query, files, commands, onSelectFile]);
+  }, [query, files, commands, onSelectFile, t]);
 
   useEffect(() => {
     if (!open) return;
@@ -76,7 +78,7 @@ export default function CommandPalette({ open, onClose, files, onSelectFile, com
               setQuery(e.target.value);
               setSelectedIndex(0);
             }}
-            placeholder="اكتب اسم ملف أو أمر..."
+            placeholder={t('palettePlaceholder')}
             className="flex-1 bg-transparent text-sm text-slate-900 dark:text-slate-100 outline-none"
           />
           <span className="text-[11px] font-mono text-slate-400">Esc</span>
@@ -104,7 +106,7 @@ export default function CommandPalette({ open, onClose, files, onSelectFile, com
                   ) : (
                     <Terminal className="w-4 h-4 text-slate-400 shrink-0" />
                   )}
-                  <span className={`truncate ${item.kind === 'file' ? 'font-mono text-xs' : ''}`} dir={item.kind === 'file' ? 'ltr' : 'rtl'}>
+                  <span className={`truncate ${item.kind === 'file' ? 'font-mono text-xs' : ''}`} dir={item.kind === 'file' ? 'ltr' : dir}>
                     {item.label}
                   </span>
                 </div>
@@ -112,7 +114,7 @@ export default function CommandPalette({ open, onClose, files, onSelectFile, com
               </button>
             ))
           ) : (
-            <p className="text-sm text-slate-500 text-center py-6">لا توجد نتائج مطابقة</p>
+            <p className="text-sm text-slate-500 text-center py-6">{t('noMatchingResults')}</p>
           )}
         </div>
       </div>

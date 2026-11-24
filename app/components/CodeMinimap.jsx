@@ -8,6 +8,7 @@ import {
   getMinimapPalette,
   yToScrollRatio,
 } from '../lib/minimap';
+import { useI18n } from '../lib/LocaleContext';
 
 export default function CodeMinimap({
   code,
@@ -18,6 +19,7 @@ export default function CodeMinimap({
   onScrollToRatio,
   onWheelScroll,
 }) {
+  const { t } = useI18n();
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
   const [size, setSize] = useState({ width: 72, height: 320 });
@@ -155,11 +157,11 @@ export default function CodeMinimap({
       data-last-line={viewport?.lastVisibleLine || totalLines}
       role="slider"
       tabIndex={0}
-      aria-label="خريطة الكود المصغرة"
+      aria-label={t('minimapAria')}
       aria-valuemin={1}
       aria-valuemax={Math.max(1, totalLines)}
       aria-valuenow={viewport?.firstVisibleLine || 1}
-      title="اسحب أو انقر للتنقل السريع داخل الملف (Minimap)"
+      title={t('minimapTitle')}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onPointerDown={(e) => {

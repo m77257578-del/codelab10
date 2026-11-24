@@ -841,7 +841,7 @@ export async function runPhp(code) {
   }
 }
 
-export async function runCode(lang, code, files = {}) {
+export async function runCode(lang, code, files = {}, locale = 'ar') {
   if (lang === 'python') return runPy(code, files);
   if (lang === 'json') return runJson(code);
   if (lang === 'sql') return runSql(code, files);
@@ -858,7 +858,13 @@ export async function runCode(lang, code, files = {}) {
   if (lang === 'c' || lang === 'cpp' || lang === 'java') {
     return runWorker(toJS(code, lang === 'c' ? 'cpp' : lang));
   }
-  return { noRun: true, err: 'التشغيل المباشر في المتصفح غير متاح لهذه اللغة؛ استخدم المحرر للكتابة والتنسيق.' };
+  return {
+    noRun: true,
+    err:
+      locale === 'en'
+        ? 'Direct browser execution is not available for this language; use the editor for coding and formatting.'
+        : 'التشغيل المباشر في المتصفح غير متاح لهذه اللغة؛ استخدم المحرر للكتابة والتنسيق.',
+  };
 }
 
 export const CONSOLE_BRIDGE = `<script>(()=>{
@@ -874,7 +880,8 @@ export const CONSOLE_BRIDGE = `<script>(()=>{
 })();<\/script>`;
 
 // Resolve local CSS, JS/TS, and Media assets (images, videos, audio, SVG) against workspace files
-export function buildWebPreviewDoc(files, activeFile, injectBridge = true) {
+export function buildWebPreviewDoc(files, activeFile, injectBridge = true, locale = 'ar') {
+  const dir = locale === 'en' ? 'ltr' : 'rtl';
   const resolveEntry = (refPath) => {
     if (!refPath || /^(https?:|data:|blob:|mailto:|#)/i.test(refPath)) return null;
     const clean = refPath.split('?')[0].split('#')[0].replace(/^\.\//, '').replace(/^\//, '');
@@ -932,7 +939,7 @@ export function buildWebPreviewDoc(files, activeFile, injectBridge = true) {
       .replace(/`([^`]+)`/g, '<code>$1</code>')
       .replace(/^- (.*)$/gm, '<li>$1</li>')
       .replace(/\n\n/g, '<br/><br/>');
-    return `<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"><style>body{font-family:system-ui,sans-serif;max-width:740px;margin:0 auto;padding:28px;line-height:1.75;color:#0f172a;background:#fff}code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:monospace}h1,h2,h3{margin-top:1.4em}</style></head><body>${md}</body></html>`;
+    return `<!DOCTYPE html><html dir="${dir}"><head><meta charset="UTF-8"><style>body{font-family:system-ui,sans-serif;max-width:740px;margin:0 auto;padding:28px;line-height:1.75;color:#0f172a;background:#fff}code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:monospace}h1,h2,h3{margin-top:1.4em}</style></head><body>${md}</body></html>`;
   }
 
   const htmlPath =
@@ -945,7 +952,10 @@ export function buildWebPreviewDoc(files, activeFile, injectBridge = true) {
   if (!htmlPath) {
     const cssContent = activeExt === 'css' && typeof activeEntry === 'string' ? resolveCssUrls(activeEntry) : '';
     const jsContent = activeExt === 'js' && typeof activeEntry === 'string' ? activeEntry : '';
-    return `<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8">${bridge}<style>${cssContent}</style></head><body><div class="card"><h1>معاينة سريعة</h1><p>لا يوجد ملف HTML في مساحة العمل الحالية.</p><button>زر تجريبي</button></div><script>${jsContent}<\/script></body></html>`;
+    const titleText = locale === 'en' ? 'Quick Preview' : 'معاينة سريعة';
+    const descText = locale === 'en' ? 'No HTML file found in the current workspace.' : 'لا يوجد ملف HTML في مساحة العمل الحالية.';
+    const btnText = locale === 'en' ? 'Sample Button' : 'زر تجريبي';
+    return `<!DOCTYPE html><html dir="${dir}"><head><meta charset="UTF-8">${bridge}<style>${cssContent}</style></head><body><div class="card"><h1>${titleText}</h1><p>${descText}</p><button>${btnText}</button></div><script>${jsContent}<\/script></body></html>`;
   }
 
   let html = typeof files[htmlPath] === 'string' ? files[htmlPath] : '';
