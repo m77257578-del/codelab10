@@ -2635,6 +2635,11 @@ export default function CodeLabIDE() {
         changes={githubChanges}
         onConnectGitHub={handleConnectGitHub}
         onDisconnectGitHub={handleDisconnectGitHub}
+        onConnectSuccess={(token, user) => {
+          setGithubSessionToken(token);
+          setGithubUser(user);
+          showNotice(t('tokenConnectedNotice', user?.login));
+        }}
         onLinkRepository={handleLinkRepository}
         onPullRepository={handlePullRepository}
         onUnlinkRepository={handleUnlinkRepository}
