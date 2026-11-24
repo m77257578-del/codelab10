@@ -167,23 +167,25 @@ export function diagnose(code, lang, locale = 'ar') {
         add(i + 1, isEn ? 'Missing ":" between property name and value' : 'ينقص النقطتان : بين اسم الخاصية وقيمتها', isEn ? 'Use property: value;' : 'اكتب الخاصية: القيمة;');
       }
     } else {
-      if (/^(if|while)\s*\([^=!<>]*[^=!<>]=[^=][^)]*\)/.test(tr)) {
-        add(i + 1, isEn ? 'Used assignment "=" inside condition instead of "=="' : 'استخدمت = (إسناد) داخل الشرط بدل == (مقارنة)', isEn ? 'Replace = with ==' : 'استبدل = بـ ==');
-      }
-      if (
-        (lang === 'cpp' || lang === 'java') &&
-        tr &&
-        !/[;{}(,:+\-*/&|=?]$/.test(tr) &&
-        !/^(#|\/\*|\*|if\b|for\b|while\b|else\b|\)|public|private|protected|class|using|import|package)/.test(tr) &&
-        !nx.startsWith('{')
-      ) {
-        add(i + 1, isEn ? 'Missing ";" at end of statement' : 'ينقص ; في نهاية السطر', isEn ? 'Add ; at the end of the line' : 'أضف ; في نهاية الجملة');
-      }
-      if (lang === 'java' && /\bstring\s+\w+/.test(tr)) {
-        add(i + 1, isEn ? 'Java String type must be capitalized' : 'اسم النوع string يجب أن يكون String بحرف كبير', isEn ? 'Use String' : 'اكتب String');
-      }
-      if (lang === 'java' && /\bsystem\.out/.test(tr)) {
-        add(i + 1, isEn ? 'System must start with an uppercase S' : 'اسم System يجب أن يبدأ بحرف كبير', isEn ? 'Use System.out.println' : 'اكتب System.out.println');
+      if (!['js', 'jsx', 'ts', 'tsx'].includes(lang)) {
+        if (/^(if|while)\s*\([^=!<>]*[^=!<>]=[^=][^)]*\)/.test(tr)) {
+          add(i + 1, isEn ? 'Used assignment "=" inside condition instead of "=="' : 'استخدمت = (إسناد) داخل الشرط بدل == (مقارنة)', isEn ? 'Replace = with ==' : 'استبدل = بـ ==');
+        }
+        if (
+          (lang === 'cpp' || lang === 'java') &&
+          tr &&
+          !/[;{}(,:+\-*/&|=?]$/.test(tr) &&
+          !/^(#|\/\*|\*|if\b|for\b|while\b|else\b|\)|public|private|protected|class|using|import|package)/.test(tr) &&
+          !nx.startsWith('{')
+        ) {
+          add(i + 1, isEn ? 'Missing ";" at end of statement' : 'ينقص ; في نهاية السطر', isEn ? 'Add ; at the end of the line' : 'أضف ; في نهاية الجملة');
+        }
+        if (lang === 'java' && /\bstring\s+\w+/.test(tr)) {
+          add(i + 1, isEn ? 'Java String type must be capitalized' : 'اسم النوع string يجب أن يكون String بحرف كبير', isEn ? 'Use String' : 'اكتب String');
+        }
+        if (lang === 'java' && /\bsystem\.out/.test(tr)) {
+          add(i + 1, isEn ? 'System must start with an uppercase S' : 'اسم System يجب أن يبدأ بحرف كبير', isEn ? 'Use System.out.println' : 'اكتب System.out.println');
+        }
       }
     }
   });

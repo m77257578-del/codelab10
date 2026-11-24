@@ -263,7 +263,7 @@ export const TRANSLATIONS = {
     includedFilesCount: (n) => `عدد الملفات المضمنة: ${n}`,
     downloadZipTitle: 'تنزيل المشروع كاملاً (ZIP)',
     downloadZipDesc: 'مجلد باسم المشروع يحتوي على كل الأكواد والصور والفيديو',
-    downloadJsonLabel: 'تنزيل نسخة مشروع CodeLab (.json) لإعادة فتحها لاحقاً',
+    downloadJsonLabel: 'تصدير ملف JSON (لنقله بين الكمبيوتر والهاتف بدون قاعدة بيانات)',
     languagesModalTitle: (n) => `إنشاء ملف بلغة برمجة (${n} لغة مدعومة)`,
     searchLangPlaceholder: 'ابحث عن لغة: JSON, SQL, PHP, Python, Rust, Go, Swift, Kotlin...',
     langCategories: {
@@ -446,6 +446,10 @@ export const TRANSLATIONS = {
     tokenPlaceholder: 'ghp_... أو github_pat_...',
     tokenLoginBtn: 'اتصال برمز الوصول الشخصي (PAT)',
     orDivider: 'أو',
+    localPreviewLink: 'رابط المعاينة المحلي',
+    copyPreviewLink: 'نسخ رابط المعاينة',
+    previewUrlCopied: 'تم نسخ رابط المعاينة المحلي بنجاح',
+    vscodeRun: 'تشغيل وتشخيص (VS Code)',
   },
 
   en: {
@@ -695,7 +699,7 @@ export const TRANSLATIONS = {
     includedFilesCount: (n) => `Included files: ${n}`,
     downloadZipTitle: 'Download Full Project (ZIP)',
     downloadZipDesc: 'Contains all source code, folders, images, audio, and video',
-    downloadJsonLabel: 'Download CodeLab snapshot (.json) to reopen later',
+    downloadJsonLabel: 'Export JSON (Transfer between PC & Phone without DB)',
     languagesModalTitle: (n) => `New Language File (${n} Supported Languages)`,
     searchLangPlaceholder: 'Search language: JSON, SQL, PHP, Python, Rust, Go, Swift, Kotlin...',
     langCategories: {
@@ -878,6 +882,10 @@ export const TRANSLATIONS = {
     tokenPlaceholder: 'ghp_... or github_pat_...',
     tokenLoginBtn: 'Connect with PAT',
     orDivider: 'OR',
+    localPreviewLink: 'Local Preview Link',
+    copyPreviewLink: 'Copy Preview Link',
+    previewUrlCopied: 'Local preview link copied successfully',
+    vscodeRun: 'Run & Debug (VS Code)',
   },
 };
 

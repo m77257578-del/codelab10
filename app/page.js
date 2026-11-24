@@ -42,6 +42,7 @@ import {
   Columns2,
   Rows2,
   Globe,
+  Copy,
 } from 'lucide-react';
 import EditorGroupPane from './components/EditorGroupPane';
 import FileExplorer from './components/FileExplorer';
@@ -1329,23 +1330,73 @@ export default function CodeLabIDE() {
     else if (res.out) res.out.trimEnd().split('\n').forEach((l) => appendLog('output', l));
   };
 
-  const externalPreviewUrl = useMemo(() => {
-    if (!previewDoc) return '#';
-    try {
-      const cleanHtml = previewDoc.replace(/<script>\(\(\)=>\{[\s\S]*?<\/script>/, '');
-      return URL.createObjectURL(new Blob([cleanHtml], { type: 'text/html' }));
-    } catch {
-      return '#';
-    }
-  }, [previewDoc]);
+  const [localPreviewUrl, setLocalPreviewUrl] = useState('#');
 
   useEffect(() => {
-    return () => {
-      if (externalPreviewUrl && externalPreviewUrl !== '#') {
-        URL.revokeObjectURL(externalPreviewUrl);
+    if (!hydrated) return;
+    try {
+      const hasHtmlWorkspace = Object.keys(files).some((p) => /\.(html|htm)$/i.test(p));
+      const isWebEntry =
+        activeIsMedia ||
+        activeLang === 'html' ||
+        activeLang === 'css' ||
+        activeLang === 'svg' ||
+        activeLang === 'markdown' ||
+        ((activeLang === 'js' || activeLang === 'ts' || activeLang === 'jsx' || activeLang === 'tsx') &&
+          hasHtmlWorkspace);
+
+      let url = '#';
+      if (isWebEntry) {
+        const doc = previewDoc || buildWebPreviewDoc(files, activeFile, true, locale);
+        const cleanHtml = doc.replace(/<script>\(\(\)=>\{[\s\S]*?<\/script>/, '');
+        url = URL.createObjectURL(new Blob([cleanHtml], { type: 'text/html' }));
+      } else {
+        const html = `<!DOCTYPE html>
+<html lang="${locale}" dir="${locale === 'ar' ? 'rtl' : 'ltr'}">
+<head>
+  <meta charset="UTF-8">
+  <title>CodeLab Local Preview — ${activeFile || 'Project'}</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; background: #1e1e1e; color: #d4d4d4; margin: 0; padding: 32px; }
+    .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #333; padding-bottom: 16px; margin-bottom: 24px; }
+    h1 { font-size: 20px; color: #4ec9b0; margin: 0; display: flex; align-items: center; gap: 8px; }
+    .badge { background: #007acc; color: #fff; padding: 3px 10px; border-radius: 4px; font-size: 12px; font-family: monospace; }
+    .card { background: #252526; border: 1px solid #3c3c3c; border-radius: 6px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+    h3 { font-size: 14px; color: #9cdcfe; margin-top: 0; margin-bottom: 10px; }
+    pre { background: #1e1e1e; color: #ce9178; padding: 16px; border-radius: 4px; border: 1px solid #333; overflow-x: auto; font-family: ui-monospace, monospace; font-size: 13px; line-height: 1.5; margin: 0; }
+    .footer { font-size: 12px; color: #858585; text-align: center; margin-top: 32px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1><span>⚡ CodeLab Local Preview Sandbox</span></h1>
+    <span class="badge">${activeFile || 'untitled'} (${activeLang.toUpperCase()})</span>
+  </div>
+  <div class="card">
+    <h3>Active File Source Code:</h3>
+    <pre>${(activeCode || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
+  </div>
+  <div class="card">
+    <h3>Local Execution & Testing Status:</h3>
+    <pre style="color: #4ec9b0;">✔ Local preview URL generated successfully.\n✔ Language: ${activeLang.toUpperCase()}\n✔ To execute code and run live terminal outputs, use CodeLab IDE Run & Debug button (Ctrl+Enter).</pre>
+  </div>
+  <div class="footer">
+    Generated locally by CodeLab Pro IDE — Offline Browser Development Environment
+  </div>
+</body>
+</html>`;
+        url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
       }
-    };
-  }, [externalPreviewUrl]);
+      setLocalPreviewUrl(url);
+      return () => {
+        if (url && url !== '#') {
+          URL.revokeObjectURL(url);
+        }
+      };
+    } catch {
+      setLocalPreviewUrl('#');
+    }
+  }, [hydrated, previewDoc, activeLang, activeCode, activeFile, files, activeIsMedia, locale]);
 
   const paletteCommands = useMemo(
     () => [
@@ -1504,9 +1555,10 @@ export default function CodeLabIDE() {
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => doRun(false)}
               disabled={running}
-              className="inline-flex items-center gap-1 px-3 py-1 rounded-sm text-xs font-semibold bg-[#007acc] hover:bg-[#1f8ad2] text-white disabled:opacity-60"
+              title={t('vscodeRun')}
+              className="inline-flex items-center gap-1 px-3 py-1 rounded-sm text-xs font-medium bg-[#0e639c] hover:bg-[#1177bb] border border-[#005fb8]/60 text-white disabled:opacity-60 shadow-sm"
             >
-              <Play className="w-3 h-3 fill-current" />
+              <Play className="w-3 h-3 fill-current text-white/90" />
               <span>{running ? t('runningShort') : t('run')}</span>
             </button>
           </div>
@@ -1567,9 +1619,10 @@ export default function CodeLabIDE() {
             type="button"
             onClick={() => doRun(false)}
             disabled={running}
-            className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-1 rounded-sm text-xs font-semibold bg-[#007acc] hover:bg-[#1f8ad2] disabled:opacity-60 text-white transition-colors whitespace-nowrap shrink-0"
+            title={t('vscodeRun')}
+            className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-1 rounded-sm text-xs font-medium bg-[#0e639c] hover:bg-[#1177bb] border border-[#005fb8]/60 text-white disabled:opacity-60 transition-colors shadow-sm whitespace-nowrap shrink-0"
           >
-            <Play className="w-3.5 h-3.5 fill-current" />
+            <Play className="w-3.5 h-3.5 fill-current text-white/90" />
             <span>{running ? t('running') : t('run')}</span>
           </button>
         </div>
@@ -2458,11 +2511,24 @@ export default function CodeLabIDE() {
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                 </button>
+                <button
+                  type="button"
+                  title={t('copyPreviewLink')}
+                  onClick={() => {
+                    if (localPreviewUrl && localPreviewUrl !== '#') {
+                      navigator.clipboard.writeText(localPreviewUrl);
+                      showNotice(t('previewUrlCopied'));
+                    }
+                  }}
+                  className="p-1.5 rounded text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                </button>
                 <a
-                  href={externalPreviewUrl}
+                  href={localPreviewUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  title={t('openExternalPreview')}
+                  title={t('localPreviewLink')}
                   className="p-1.5 rounded text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />

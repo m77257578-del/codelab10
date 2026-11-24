@@ -11,7 +11,7 @@ import {
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const MAX_PULL_FILES = 60;
+const MAX_PULL_FILES = 1000;
 const MAX_FILE_BYTES = 512 * 1024;
 const MEDIA_EXT_RE = /\.(png|jpe?g|gif|webp|bmp|ico|avif|mp4|webm|mov|m4v|ogv|mp3|wav|ogg|m4a|aac|flac)$/i;
 
