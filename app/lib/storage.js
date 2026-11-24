@@ -1,4 +1,6 @@
-// IndexedDB workspace persistence + pure-JS offline ZIP project exporter
+// IndexedDB workspace persistence + pure-JS offline ZIP project exporter & importer
+
+import JSZip from 'jszip';
 
 const DB_NAME = 'codelab_ide_db';
 const STORE_NAME = 'workspace';
@@ -200,3 +202,95 @@ export function buildProjectZip(projectName, files) {
 
   return new Blob(parts, { type: 'application/zip' });
 }
+
+const ZIP_MEDIA_RE = /\.(png|jpe?g|gif|webp|bmp|ico|avif|mp4|webm|mov|m4v|ogv|mp3|wav|ogg|m4a|aac|flac)$/i;
+
+function inferMediaMime(ext) {
+  if (['mp4', 'webm', 'mov', 'm4v', 'ogv'].includes(ext)) {
+    return `video/${ext === 'mov' ? 'quicktime' : ext === 'm4v' ? 'mp4' : ext === 'ogv' ? 'ogg' : ext}`;
+  }
+  if (['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac'].includes(ext)) {
+    return `audio/${ext === 'mp3' ? 'mpeg' : ext === 'm4a' ? 'mp4' : ext}`;
+  }
+  if (ext === 'jpg') return 'image/jpeg';
+  if (ext === 'ico') return 'image/x-icon';
+  return `image/${ext}`;
+}
+
+export async function extractZipArchive(file) {
+  const arrayBuffer = await file.arrayBuffer();
+  const zip = await JSZip.loadAsync(arrayBuffer);
+  const zipBaseName = String(file.name || 'imported-project').replace(/\.zip$/i, '');
+
+  const rawEntries = [];
+  for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
+    if (zipEntry.dir) continue;
+    const normalized = relativePath
+      .replace(/\\/g, '/')
+      .replace(/^\.\//, '')
+      .replace(/^\/+/, '');
+    if (!normalized || normalized.includes('..')) continue;
+    const segments = normalized.split('/');
+    if (
+      segments[0] === '__MACOSX' ||
+      segments[0] === '.git' ||
+      segments.some((seg) => seg === '.DS_Store' || seg.startsWith('._'))
+    ) {
+      continue;
+    }
+    rawEntries.push({ path: normalized, zipEntry });
+  }
+
+  if (rawEntries.length === 0) {
+    return { files: {}, projectName: zipBaseName, count: 0 };
+  }
+
+  // Unwrap single common wrapper folder (e.g. CodeLab exports or GitHub repo-main.zip)
+  let stripPrefix = '';
+  const allHaveFolder = rawEntries.every((e) => e.path.includes('/'));
+  if (allHaveFolder) {
+    const firstDir = rawEntries[0].path.split('/')[0];
+    const sameRoot = rawEntries.every((e) => e.path.startsWith(`${firstDir}/`));
+    if (sameRoot) {
+      const hasRootProjectMarker = rawEntries.some((e) =>
+        new RegExp(`^${firstDir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/(index\\.html?|package\\.json|README\\.md)$`, 'i').test(e.path)
+      );
+      if (
+        firstDir.toLowerCase() === zipBaseName.toLowerCase() ||
+        /-(main|master)$/i.test(firstDir) ||
+        hasRootProjectMarker
+      ) {
+        stripPrefix = `${firstDir}/`;
+      }
+    }
+  }
+
+  const loaded = {};
+  for (const { path, zipEntry } of rawEntries) {
+    const cleanPath = stripPrefix ? path.slice(stripPrefix.length) : path;
+    if (!cleanPath) continue;
+
+    if (ZIP_MEDIA_RE.test(cleanPath)) {
+      const base64 = await zipEntry.async('base64');
+      const ext = cleanPath.split('.').pop()?.toLowerCase() || 'png';
+      const mime = inferMediaMime(ext);
+      loaded[cleanPath] = {
+        __media: true,
+        mime,
+        size: zipEntry._data?.uncompressedSize || Math.floor((base64.length * 3) / 4),
+        name: cleanPath.split('/').pop(),
+        dataUrl: `data:${mime};base64,${base64}`,
+      };
+    } else {
+      const text = await zipEntry.async('text');
+      loaded[cleanPath] = text;
+    }
+  }
+
+  return {
+    files: loaded,
+    projectName: stripPrefix ? stripPrefix.slice(0, -1) : zipBaseName,
+    count: Object.keys(loaded).length,
+  };
+}
+

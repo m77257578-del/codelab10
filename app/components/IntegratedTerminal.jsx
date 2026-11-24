@@ -197,13 +197,13 @@ export default function IntegratedTerminal({
 
   return (
     <div
-      className="flex-1 min-h-0 flex flex-col bg-[#080d17] text-slate-200 font-mono text-xs"
+      className="flex-1 min-h-0 flex flex-col bg-[#1e1e1e] text-[#cccccc] font-mono text-xs"
       dir="ltr"
       onClick={() => inputRef.current?.focus()}
     >
       {/* Quick Build & Script Bar */}
       <div
-        className="h-7 shrink-0 flex items-center justify-between gap-2 px-2.5 border-b border-slate-800/80 bg-[#0b1220] overflow-x-auto"
+        className="h-7 shrink-0 flex items-center justify-between gap-2 px-2.5 border-b border-[#2b2b2b] bg-[#252526] overflow-x-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-1.5 shrink-0">
@@ -287,7 +287,7 @@ export default function IntegratedTerminal({
           e.preventDefault();
           runCommand(input);
         }}
-        className="h-8 shrink-0 flex items-center gap-2 px-2.5 border-t border-slate-800 bg-[#060a12]"
+        className="h-8 shrink-0 flex items-center gap-2 px-2.5 border-t border-[#2b2b2b] bg-[#181818]"
       >
         <span className="text-emerald-400 font-semibold shrink-0 select-none">{promptLabel}</span>
         <input

@@ -26,20 +26,132 @@ body {
   font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace !important;
 }
 
-/* CodeMirror IDE layout integration */
+/* CodeMirror VS Code IDE layout integration */
 .cm-editor {
   height: 100%;
   outline: none !important;
+  font-variant-ligatures: contextual;
 }
 
 .cm-scroller {
   overflow: auto;
-  line-height: 1.65;
+  line-height: 1.6;
 }
 
 .cm-content {
   padding-top: 8px !important;
-  padding-bottom: 12px !important;
+  padding-bottom: 32vh !important;
+}
+
+.cm-gutters {
+  user-select: none;
+  font-size: 0.9em;
+}
+
+.cm-lineNumbers .cm-gutterElement {
+  padding: 0 10px 0 14px !important;
+  min-width: 42px;
+}
+
+.cm-foldGutter .cm-gutterElement {
+  padding: 0 4px !important;
+  opacity: 0.65;
+}
+
+.cm-foldGutter .cm-gutterElement:hover {
+  opacity: 1;
+}
+
+/* VS Code matching brackets & word occurrences */
+.cm-matchingBracket {
+  background-color: rgba(0, 122, 204, 0.22) !important;
+  outline: 1px solid rgba(136, 136, 136, 0.55);
+  border-radius: 1px;
+}
+
+.cm-selectionMatch {
+  background-color: rgba(234, 92, 0, 0.22) !important;
+  outline: 1px solid rgba(234, 92, 0, 0.35);
+}
+
+.dark .cm-selectionMatch {
+  background-color: rgba(81, 92, 106, 0.45) !important;
+  outline: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+/* Subtle VS Code indentation guides */
+.cm-indent-guide {
+  display: inline-block;
+  box-shadow: inset 1px 0 0 0 rgba(128, 128, 128, 0.22);
+}
+
+.dark .cm-indent-guide {
+  box-shadow: inset 1px 0 0 0 rgba(255, 255, 255, 0.12);
+}
+
+/* VS Code Find & Replace panel */
+.cm-panels.cm-panels-top {
+  border-bottom: 1px solid #d4d4d4;
+  background-color: #f3f3f3;
+  color: #333333;
+  z-index: 20;
+}
+
+.dark .cm-panels.cm-panels-top {
+  border-bottom: 1px solid #3c3c3c;
+  background-color: #252526;
+  color: #cccccc;
+}
+
+.cm-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px !important;
+  font-size: 12px !important;
+  font-family: 'IBM Plex Sans Arabic', 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+.cm-search input.cm-textfield {
+  background-color: #ffffff !important;
+  border: 1px solid #cecece !important;
+  color: #1e1e1e !important;
+  border-radius: 2px;
+  padding: 3px 6px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.dark .cm-search input.cm-textfield {
+  background-color: #3c3c3c !important;
+  border: 1px solid #3c3c3c !important;
+  color: #cccccc !important;
+}
+
+.cm-search input.cm-textfield:focus {
+  border-color: #007acc !important;
+  outline: none;
+}
+
+.cm-search button.cm-button {
+  background: #e4e4e4 !important;
+  border: 1px solid #cccccc !important;
+  color: #333333 !important;
+  border-radius: 2px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.dark .cm-search button.cm-button {
+  background: #333333 !important;
+  border: 1px solid #454545 !important;
+  color: #cccccc !important;
+}
+
+.dark .cm-search button.cm-button:hover {
+  background: #094771 !important;
+  border-color: #007acc !important;
+  color: #ffffff !important;
 }
 
 .no-scrollbar::-webkit-scrollbar {
@@ -51,10 +163,10 @@ body {
   scrollbar-width: none;
 }
 
-/* Subtle thin scrollbars for IDE panes */
+/* VS Code-style thin scrollbars */
 ::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -62,45 +174,45 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.25);
-  border-radius: 4px;
+  background: rgba(121, 121, 121, 0.35);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.45);
+  background: rgba(121, 121, 121, 0.6);
 }
 
-/* VS Code-style CodeMirror IntelliSense autocomplete menu */
+/* VS Code IntelliSense autocomplete widget */
 .cm-tooltip-autocomplete {
   font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace !important;
   overflow: hidden;
+  border-radius: 3px !important;
   z-index: 45 !important;
 }
 
 .cm-tooltip-autocomplete > ul {
   max-height: 240px !important;
-  min-width: 220px;
-  max-width: min(92vw, 380px);
+  min-width: 240px;
+  max-width: min(92vw, 400px);
 }
 
 .cm-tooltip-autocomplete > ul > li {
   display: flex !important;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px !important;
-  font-size: 13px;
-  line-height: 1.35;
+  padding: 4px 10px !important;
+  font-size: 12.5px;
+  line-height: 1.4;
   cursor: pointer;
 }
 
 @media (max-width: 767px) {
   .cm-tooltip-autocomplete > ul {
-    max-height: 148px !important;
+    max-height: 150px !important;
   }
 
   .cm-tooltip-autocomplete > ul > li {
-    min-height: 34px;
-    padding: 6px 10px !important;
+    min-height: 32px;
+    padding: 5px 10px !important;
   }
 }
 
@@ -114,7 +226,7 @@ body {
 .cm-completionMatchedText {
   text-decoration: none !important;
   font-weight: 700;
-  color: #38bdf8;
+  color: #18a3ff;
 }
 
 .cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionMatchedText {

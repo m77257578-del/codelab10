@@ -4,13 +4,31 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { getMobileBarConfig } from '../lib/completions';
 import CodeMirror from '@uiw/react-codemirror';
-import { EditorState } from '@codemirror/state';
-import { EditorView, keymap } from '@codemirror/view';
-import { indentWithTab, indentMore, redo, toggleComment, undo } from '@codemirror/commands';
-import { autocompletion, snippet, startCompletion } from '@codemirror/autocomplete';
+import { EditorState, RangeSetBuilder } from '@codemirror/state';
+import { Decoration, EditorView, ViewPlugin, keymap } from '@codemirror/view';
+import {
+  copyLineDown,
+  copyLineUp,
+  deleteLine,
+  indentMore,
+  indentWithTab,
+  moveLineDown,
+  moveLineUp,
+  redo,
+  toggleComment,
+  undo,
+} from '@codemirror/commands';
+import { acceptCompletion, autocompletion, snippet, startCompletion } from '@codemirror/autocomplete';
 import { HighlightStyle, StreamLanguage, indentUnit, syntaxHighlighting } from '@codemirror/language';
 import { tags as t } from '@lezer/highlight';
-import { search, searchKeymap, openSearchPanel } from '@codemirror/search';
+import {
+  highlightSelectionMatches,
+  openSearchPanel,
+  search,
+  searchKeymap,
+  selectNextOccurrence,
+  selectSelectionMatches,
+} from '@codemirror/search';
 import { linter, lintGutter, lintKeymap } from '@codemirror/lint';
 import { html } from '@codemirror/lang-html';
 import { css } from '@codemirror/lang-css';
@@ -145,68 +163,119 @@ function getLangExtension(lang) {
   }
 }
 
+function createIndentGuides(tabSize = 2) {
+  const step = Math.max(2, tabSize || 2);
+  const guideMark = Decoration.mark({ class: 'cm-indent-guide' });
+
+  const buildGuides = (view) => {
+    const builder = new RangeSetBuilder();
+    const seenLines = new Set();
+    for (const { from, to } of view.visibleRanges) {
+      let pos = from;
+      while (pos <= to) {
+        const line = view.state.doc.lineAt(pos);
+        if (!seenLines.has(line.number)) {
+          seenLines.add(line.number);
+          const match = line.text.match(/^[ ]+/);
+          if (match) {
+            const len = match[0].length;
+            for (let i = 0; i + step <= len; i += step) {
+              builder.add(line.from + i, line.from + i + step, guideMark);
+            }
+          }
+        }
+        if (line.to >= to) break;
+        pos = line.to + 1;
+      }
+    }
+    return builder.finish();
+  };
+
+  return ViewPlugin.fromClass(
+    class {
+      constructor(view) {
+        this.decorations = buildGuides(view);
+      }
+      update(update) {
+        if (update.docChanged || update.viewportChanged) {
+          this.decorations = buildGuides(update.view);
+        }
+      }
+    },
+    { decorations: (v) => v.decorations }
+  );
+}
+
+// Authentic VS Code Dark+ Syntax Highlighting
 const darkHighlightStyle = HighlightStyle.define([
-  { tag: t.comment, color: '#64748b', fontStyle: 'italic' },
-  { tag: [t.keyword, t.controlKeyword, t.operatorKeyword, t.moduleKeyword, t.definitionKeyword], color: '#c084fc' },
-  { tag: [t.operator, t.punctuation, t.separator], color: '#94a3b8' },
-  { tag: [t.string, t.special(t.string), t.regexp], color: '#34d399' },
-  { tag: [t.number, t.integer, t.float, t.unit], color: '#fb923c' },
-  { tag: [t.bool, t.null, t.atom], color: '#f472b6' },
-  { tag: [t.function(t.variableName), t.function(t.propertyName)], color: '#38bdf8' },
-  { tag: [t.definition(t.variableName), t.variableName], color: '#e2e8f0' },
-  { tag: [t.propertyName, t.definition(t.propertyName)], color: '#7dd3fc' },
-  { tag: [t.className, t.typeName, t.namespace], color: '#fbbf24' },
-  { tag: [t.tagName, t.angleBracket], color: '#f87171' },
-  { tag: [t.attributeName], color: '#fbbf24' },
-  { tag: [t.attributeValue], color: '#34d399' },
-  { tag: [t.color], color: '#f472b6' },
-  { tag: [t.heading], color: '#38bdf8', fontWeight: '600' },
-  { tag: [t.invalid], color: '#ef4444', textDecoration: 'underline' },
+  { tag: t.comment, color: '#6A9955', fontStyle: 'italic' },
+  { tag: [t.controlKeyword, t.moduleKeyword], color: '#C586C0' },
+  { tag: [t.keyword, t.operatorKeyword, t.definitionKeyword], color: '#569CD6' },
+  { tag: [t.operator, t.punctuation, t.separator], color: '#D4D4D4' },
+  { tag: [t.string, t.special(t.string)], color: '#CE9178' },
+  { tag: [t.regexp], color: '#D16969' },
+  { tag: [t.number, t.integer, t.float, t.unit], color: '#B5CEA8' },
+  { tag: [t.bool, t.null, t.atom], color: '#569CD6' },
+  { tag: [t.function(t.variableName), t.function(t.propertyName)], color: '#DCDCAA' },
+  { tag: [t.definition(t.variableName), t.variableName], color: '#9CDCFE' },
+  { tag: [t.propertyName, t.definition(t.propertyName)], color: '#9CDCFE' },
+  { tag: [t.className, t.typeName, t.namespace], color: '#4EC9B0' },
+  { tag: [t.tagName], color: '#569CD6' },
+  { tag: [t.angleBracket], color: '#808080' },
+  { tag: [t.attributeName], color: '#9CDCFE' },
+  { tag: [t.attributeValue], color: '#CE9178' },
+  { tag: [t.color], color: '#CE9178' },
+  { tag: [t.heading], color: '#569CD6', fontWeight: '600' },
+  { tag: [t.invalid], color: '#F44747', textDecoration: 'underline' },
 ]);
 
+// Authentic VS Code Light+ Syntax Highlighting
 const lightHighlightStyle = HighlightStyle.define([
-  { tag: t.comment, color: '#64748b', fontStyle: 'italic' },
-  { tag: [t.keyword, t.controlKeyword, t.operatorKeyword, t.moduleKeyword, t.definitionKeyword], color: '#7c3aed' },
-  { tag: [t.operator, t.punctuation, t.separator], color: '#475569' },
-  { tag: [t.string, t.special(t.string), t.regexp], color: '#059669' },
-  { tag: [t.number, t.integer, t.float, t.unit], color: '#c2410c' },
-  { tag: [t.bool, t.null, t.atom], color: '#be185d' },
-  { tag: [t.function(t.variableName), t.function(t.propertyName)], color: '#0284c7' },
-  { tag: [t.definition(t.variableName), t.variableName], color: '#0f172a' },
-  { tag: [t.propertyName, t.definition(t.propertyName)], color: '#0369a1' },
-  { tag: [t.className, t.typeName, t.namespace], color: '#b45309' },
-  { tag: [t.tagName, t.angleBracket], color: '#dc2626' },
-  { tag: [t.attributeName], color: '#b45309' },
-  { tag: [t.attributeValue], color: '#059669' },
-  { tag: [t.color], color: '#be185d' },
-  { tag: [t.heading], color: '#0284c7', fontWeight: '600' },
-  { tag: [t.invalid], color: '#dc2626', textDecoration: 'underline' },
+  { tag: t.comment, color: '#008000', fontStyle: 'italic' },
+  { tag: [t.controlKeyword, t.moduleKeyword], color: '#AF00DB' },
+  { tag: [t.keyword, t.operatorKeyword, t.definitionKeyword], color: '#0000FF' },
+  { tag: [t.operator, t.punctuation, t.separator], color: '#000000' },
+  { tag: [t.string, t.special(t.string)], color: '#A31515' },
+  { tag: [t.regexp], color: '#811F3F' },
+  { tag: [t.number, t.integer, t.float, t.unit], color: '#098658' },
+  { tag: [t.bool, t.null, t.atom], color: '#0000FF' },
+  { tag: [t.function(t.variableName), t.function(t.propertyName)], color: '#795E26' },
+  { tag: [t.definition(t.variableName), t.variableName], color: '#001080' },
+  { tag: [t.propertyName, t.definition(t.propertyName)], color: '#001080' },
+  { tag: [t.className, t.typeName, t.namespace], color: '#267F99' },
+  { tag: [t.tagName], color: '#800000' },
+  { tag: [t.angleBracket], color: '#800000' },
+  { tag: [t.attributeName], color: '#E50000' },
+  { tag: [t.attributeValue], color: '#0000FF' },
+  { tag: [t.color], color: '#0451A5' },
+  { tag: [t.heading], color: '#800000', fontWeight: '600' },
+  { tag: [t.invalid], color: '#CD3131', textDecoration: 'underline' },
 ]);
 
 const lightEditorTheme = EditorView.theme(
   {
-    '&': { backgroundColor: '#ffffff', color: '#0f172a' },
-    '.cm-content': { caretColor: '#0284c7' },
-    '.cm-gutters': { backgroundColor: '#f8fafc', color: '#64748b', borderRight: '1px solid #e2e8f0' },
-    '.cm-activeLine': { backgroundColor: 'rgba(14, 165, 233, 0.06)' },
-    '.cm-activeLineGutter': { backgroundColor: 'rgba(14, 165, 233, 0.1)', color: '#0f172a' },
-    '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': { backgroundColor: 'rgba(14, 165, 233, 0.18)' },
-    '.cm-tooltip': { backgroundColor: '#ffffff', border: '1px solid #cbd5e1', color: '#0f172a', borderRadius: '8px', boxShadow: '0 10px 30px rgba(15, 23, 42, 0.12)' },
-    '.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: '#0284c7', color: '#ffffff' },
+    '&': { backgroundColor: '#ffffff', color: '#000000' },
+    '.cm-content': { caretColor: '#000000' },
+    '.cm-gutters': { backgroundColor: '#ffffff', color: '#237893', borderRight: 'none' },
+    '.cm-activeLine': { backgroundColor: 'rgba(0, 0, 0, 0.03)', outline: '1px solid rgba(0, 0, 0, 0.04)' },
+    '.cm-activeLineGutter': { backgroundColor: 'transparent', color: '#0b216f', fontWeight: '600' },
+    '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': { backgroundColor: '#add6ff' },
+    '.cm-tooltip': { backgroundColor: '#f3f3f3', border: '1px solid #c8c8c8', color: '#333333', borderRadius: '3px', boxShadow: '0 4px 16px rgba(0, 0, 0, 0.14)' },
+    '.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: '#0060c0', color: '#ffffff' },
   },
   { dark: false }
 );
 
 const darkEditorTheme = EditorView.theme(
   {
-    '&': { backgroundColor: '#0b1120', color: '#e2e8f0' },
-    '.cm-content': { caretColor: '#38bdf8' },
-    '.cm-gutters': { backgroundColor: '#0f172a', color: '#64748b', borderRight: '1px solid #1e293b' },
-    '.cm-activeLine': { backgroundColor: 'rgba(56, 189, 248, 0.06)' },
-    '.cm-activeLineGutter': { backgroundColor: 'rgba(56, 189, 248, 0.12)', color: '#e2e8f0' },
-    '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': { backgroundColor: 'rgba(56, 189, 248, 0.22)' },
-    '.cm-tooltip': { backgroundColor: '#0f172a', border: '1px solid #334155', color: '#e2e8f0', borderRadius: '8px', boxShadow: '0 12px 32px rgba(2, 6, 23, 0.55)' },
-    '.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: '#0369a1', color: '#ffffff' },
+    '&': { backgroundColor: '#1e1e1e', color: '#d4d4d4' },
+    '.cm-content': { caretColor: '#aeafad' },
+    '.cm-gutters': { backgroundColor: '#1e1e1e', color: '#858585', borderRight: 'none' },
+    '.cm-activeLine': { backgroundColor: 'rgba(255, 255, 255, 0.04)', outline: '1px solid #282828' },
+    '.cm-activeLineGutter': { backgroundColor: 'transparent', color: '#c6c6c6' },
+    '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': { backgroundColor: '#264f78' },
+    '.cm-tooltip': { backgroundColor: '#252526', border: '1px solid #454545', color: '#cccccc', borderRadius: '3px', boxShadow: '0 8px 24px rgba(0, 0, 0, 0.55)' },
+    '.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: '#04395e', color: '#ffffff' },
   },
   { dark: true }
 );
@@ -239,6 +308,12 @@ export default function CodeEditorPane({
   const viewRef = useRef(null);
   const filesRef = useRef(files);
   filesRef.current = files;
+  const cursorCbRef = useRef(onCursorChange);
+  cursorCbRef.current = onCursorChange;
+  const focusCbRef = useRef(onFocusChange);
+  focusCbRef.current = onFocusChange;
+  const runCbRef = useRef(onRunShortcut);
+  runCbRef.current = onRunShortcut;
 
   const extensions = useMemo(() => {
     const langExt = getLangExtension(lang);
@@ -276,17 +351,29 @@ export default function CodeEditorPane({
       }),
       syntaxHighlighting(theme === 'dark' ? darkHighlightStyle : lightHighlightStyle),
       indentUnit.of(' '.repeat(tabSize)),
+      createIndentGuides(tabSize),
       search({ top: true }),
+      highlightSelectionMatches({ minSelectionLength: 2, wholeWords: true }),
       lintGutter(),
       localLinter,
       keymap.of([
+        { key: 'Tab', run: acceptCompletion },
         indentWithTab,
+        { key: 'Ctrl-Space', run: startCompletion },
+        { key: 'Mod-d', run: selectNextOccurrence, preventDefault: true },
+        { key: 'Mod-Shift-l', run: selectSelectionMatches, preventDefault: true },
+        { key: 'Alt-ArrowUp', run: moveLineUp, preventDefault: true },
+        { key: 'Alt-ArrowDown', run: moveLineDown, preventDefault: true },
+        { key: 'Shift-Alt-ArrowUp', run: copyLineUp, preventDefault: true },
+        { key: 'Shift-Alt-ArrowDown', run: copyLineDown, preventDefault: true },
+        { key: 'Mod-Shift-k', run: deleteLine, preventDefault: true },
+        { key: 'Mod-/', run: toggleComment, preventDefault: true },
         ...searchKeymap,
         ...lintKeymap,
         {
           key: 'Mod-Enter',
           run: () => {
-            onRunShortcut?.();
+            runCbRef.current?.();
             return true;
           },
         },
@@ -294,13 +381,10 @@ export default function CodeEditorPane({
       EditorView.scrollMargins.of(() => ({ top: 24, bottom: 32 })),
       EditorView.domEventHandlers({
         focus: () => {
-          onFocusChange?.(true);
+          focusCbRef.current?.(true);
         },
         blur: () => {
-          onFocusChange?.(false);
-        },
-        dblclick: () => {
-          setShowShortcuts((v) => !v);
+          focusCbRef.current?.(false);
         },
       }),
       EditorView.updateListener.of((update) => {
@@ -308,7 +392,7 @@ export default function CodeEditorPane({
           const head = update.state.selection.main.head;
           const line = update.state.doc.lineAt(head);
           const selected = Math.abs(update.state.selection.main.to - update.state.selection.main.from);
-          onCursorChange?.({
+          cursorCbRef.current?.({
             line: line.number,
             col: head - line.from + 1,
             selected,
@@ -326,7 +410,7 @@ export default function CodeEditorPane({
       exts.push(EditorView.lineWrapping);
     }
     return exts;
-  }, [lang, theme, fontSize, tabSize, wordWrap, onCursorChange, onFocusChange, onRunShortcut]);
+  }, [lang, theme, fontSize, tabSize, wordWrap]);
 
   useEffect(() => {
     if (editorRefOut) {
@@ -425,9 +509,8 @@ export default function CodeEditorPane({
 
   return (
     <div
-      className="h-full w-full overflow-hidden bg-white dark:bg-[#0b1120] flex flex-col"
+      className="h-full w-full overflow-hidden bg-white dark:bg-[#1e1e1e] flex flex-col"
       dir="ltr"
-      onDoubleClick={() => setShowShortcuts((v) => !v)}
     >
       {showShortcuts && (
         <div className="shrink-0 bg-slate-100 dark:bg-[#0f172a] border-b border-slate-200 dark:border-slate-800 p-2 flex items-center justify-between gap-2 z-10 select-none">

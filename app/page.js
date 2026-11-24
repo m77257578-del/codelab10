@@ -29,16 +29,22 @@ import {
   Languages,
   Keyboard,
   FolderDown,
+  FolderArchive,
+  Files,
+  Layers,
+  Settings,
+  ChevronRight,
   Minus,
   Plus,
   GitBranch,
   SlidersHorizontal,
   Check,
+  Columns2,
+  Rows2,
 } from 'lucide-react';
-import CodeEditorPane from './components/CodeEditorPane';
+import EditorGroupPane from './components/EditorGroupPane';
 import FileExplorer from './components/FileExplorer';
 import LanguageIcon from './components/LanguageIcon';
-import MediaViewerPane from './components/MediaViewerPane';
 import MobileCodeBar from './components/MobileCodeBar';
 import CommandPalette from './components/CommandPalette';
 import QuickOpenModal from './components/QuickOpenModal';
@@ -51,12 +57,13 @@ import {
   TemplatesModal,
   CodeReviewModal,
 } from './components/IdeModals';
-import { WORKSPACE_TEMPLATES, detectLang, detectMediaKind, getLangMeta } from './lib/workspaces';
+import { WORKSPACE_TEMPLATES, detectLang, getLangMeta } from './lib/workspaces';
 import { arJs, diagnose, formatCode } from './lib/diagnostics';
 import { formatWithPrettier } from './lib/formatter';
 import { buildWebPreviewDoc, isPyodideReady, runCode, runWorker } from './lib/runner';
 import {
   buildProjectZip,
+  extractZipArchive,
   isMediaEntry,
   loadProjectName,
   loadWorkspaceFiles,
@@ -64,18 +71,40 @@ import {
   saveProjectName,
   saveWorkspaceFiles,
 } from './lib/storage';
+import {
+  MAX_EDITOR_GROUPS,
+  closeEditorGroup,
+  closeTabInGroup,
+  createInitialGroups,
+  getActiveGroup,
+  moveTabBetweenGroups,
+  normalizeGroups,
+  openFileInGroup,
+  removeFileFromGroups,
+  renameFileInGroups,
+  splitEditorGroup,
+} from './lib/editorGroups';
 
 const STORAGE_FILES_LEGACY = 'codelab_ide_files_v1';
 const STORAGE_TABS = 'codelab_ide_tabs_v1';
 const STORAGE_ACTIVE = 'codelab_ide_active_v1';
+const STORAGE_GROUPS = 'codelab_ide_groups_v1';
+const STORAGE_ACTIVE_GROUP = 'codelab_ide_active_group_v1';
+const STORAGE_SPLIT_DIR = 'codelab_ide_split_dir_v1';
 const STORAGE_PREFS = 'codelab_ide_prefs_v1';
 
 const DEFAULT_TPL = WORKSPACE_TEMPLATES[0];
+const INITIAL_GROUP_STATE = createInitialGroups(
+  [DEFAULT_TPL.entryFile, 'styles.css', 'app.js'],
+  DEFAULT_TPL.entryFile
+);
 
 export default function CodeLabIDE() {
   const [files, setFiles] = useState(DEFAULT_TPL.files);
-  const [openTabs, setOpenTabs] = useState([DEFAULT_TPL.entryFile, 'styles.css', 'app.js']);
-  const [activeFile, setActiveFile] = useState(DEFAULT_TPL.entryFile);
+  const [editorGroups, setEditorGroups] = useState(INITIAL_GROUP_STATE.groups);
+  const [activeGroupId, setActiveGroupId] = useState(INITIAL_GROUP_STATE.activeGroupId);
+  const [splitDirection, setSplitDirection] = useState('horizontal'); // 'horizontal' | 'vertical'
+  const [groupRatios, setGroupRatios] = useState(null);
   const [projectName, setProjectName] = useState('my-codelab-project');
   const [hydrated, setHydrated] = useState(false);
 
@@ -118,9 +147,41 @@ export default function CodeLabIDE() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const editorApiRef = useRef(null);
+  const editorApisRef = useRef({});
+  const activeGroupIdRef = useRef(activeGroupId);
+  activeGroupIdRef.current = activeGroupId;
+  const splitContainerRef = useRef(null);
+  const editorApiRef = useRef({
+    openFind: () => editorApisRef.current[activeGroupIdRef.current]?.current?.openFind?.(),
+    jumpToLine: (line) => editorApisRef.current[activeGroupIdRef.current]?.current?.jumpToLine?.(line),
+    focus: () => editorApisRef.current[activeGroupIdRef.current]?.current?.focus?.(),
+    blur: () => editorApisRef.current[activeGroupIdRef.current]?.current?.blur?.(),
+    triggerAutocomplete: () => editorApisRef.current[activeGroupIdRef.current]?.current?.triggerAutocomplete?.(),
+    undo: () => editorApisRef.current[activeGroupIdRef.current]?.current?.undo?.(),
+    redo: () => editorApisRef.current[activeGroupIdRef.current]?.current?.redo?.(),
+    toggleComment: () => editorApisRef.current[activeGroupIdRef.current]?.current?.toggleComment?.(),
+    indent: () => editorApisRef.current[activeGroupIdRef.current]?.current?.indent?.(),
+    moveCursor: (delta) => editorApisRef.current[activeGroupIdRef.current]?.current?.moveCursor?.(delta),
+    insertSymbol: (sym) => editorApisRef.current[activeGroupIdRef.current]?.current?.insertSymbol?.(sym),
+    insertSnippet: (tpl) => editorApisRef.current[activeGroupIdRef.current]?.current?.insertSnippet?.(tpl),
+  });
   const noticeTimerRef = useRef(null);
   const settingsRef = useRef(null);
+  const zipInputRef = useRef(null);
+
+  const registerEditorApi = useCallback((groupId, ref) => {
+    if (ref) {
+      editorApisRef.current[groupId] = ref;
+    } else {
+      delete editorApisRef.current[groupId];
+    }
+  }, []);
+
+  const activeGroup = useMemo(
+    () => getActiveGroup(editorGroups, activeGroupId),
+    [editorGroups, activeGroupId]
+  );
+  const activeFile = activeGroup.activeFile;
 
   const showNotice = useCallback((msg) => {
     setNotice(msg);
@@ -145,6 +206,9 @@ export default function CodeLabIDE() {
           }
         }
 
+        const savedGroupsRaw = localStorage.getItem(STORAGE_GROUPS);
+        const savedActiveGroup = localStorage.getItem(STORAGE_ACTIVE_GROUP);
+        const savedSplitDir = localStorage.getItem(STORAGE_SPLIT_DIR);
         const savedTabs = localStorage.getItem(STORAGE_TABS);
         const savedActive = localStorage.getItem(STORAGE_ACTIVE);
         const savedPrefs = localStorage.getItem(STORAGE_PREFS);
@@ -152,13 +216,35 @@ export default function CodeLabIDE() {
 
         if (!active) return;
         setProjectName(savedProj);
+        if (savedSplitDir === 'horizontal' || savedSplitDir === 'vertical') {
+          setSplitDirection(savedSplitDir);
+        }
 
-        if (loadedFiles && Object.keys(loadedFiles).length > 0) {
+        if (loadedFiles && typeof loadedFiles === 'object') {
           setFiles(loadedFiles);
           const keys = Object.keys(loadedFiles);
-          const validTabs = savedTabs ? JSON.parse(savedTabs).filter((t) => loadedFiles[t] !== undefined) : [];
-          setOpenTabs(validTabs.length ? validTabs : [keys[0]]);
-          setActiveFile(savedActive && loadedFiles[savedActive] !== undefined ? savedActive : keys[0]);
+          if (keys.length > 0) {
+            let candidateGroups = null;
+            if (savedGroupsRaw) {
+              try {
+                const parsed = JSON.parse(savedGroupsRaw);
+                if (Array.isArray(parsed) && parsed.length > 0) candidateGroups = parsed;
+              } catch {}
+            }
+            if (!candidateGroups) {
+              const validTabs = savedTabs ? JSON.parse(savedTabs).filter((t) => loadedFiles[t] !== undefined) : [];
+              const fallbackTabs = validTabs.length ? validTabs : [keys[0]];
+              const fallbackActive = savedActive && loadedFiles[savedActive] !== undefined ? savedActive : fallbackTabs[0];
+              candidateGroups = createInitialGroups(fallbackTabs, fallbackActive).groups;
+            }
+            const normalized = normalizeGroups(candidateGroups, loadedFiles, savedActiveGroup);
+            setEditorGroups(normalized.groups);
+            setActiveGroupId(normalized.activeGroupId);
+          } else {
+            const emptyState = normalizeGroups([], {}, 'group-1');
+            setEditorGroups(emptyState.groups);
+            setActiveGroupId(emptyState.activeGroupId);
+          }
         }
 
         const narrow = typeof window !== 'undefined' && window.innerWidth < 768;
@@ -282,12 +368,15 @@ export default function CodeLabIDE() {
     if (!hydrated) return;
     saveWorkspaceFiles(files);
     try {
-      localStorage.setItem(STORAGE_TABS, JSON.stringify(openTabs));
+      localStorage.setItem(STORAGE_GROUPS, JSON.stringify(editorGroups));
+      localStorage.setItem(STORAGE_ACTIVE_GROUP, activeGroupId);
+      localStorage.setItem(STORAGE_SPLIT_DIR, splitDirection);
+      localStorage.setItem(STORAGE_TABS, JSON.stringify(activeGroup.tabs));
       localStorage.setItem(STORAGE_ACTIVE, activeFile);
       localStorage.setItem(STORAGE_PREFS, JSON.stringify(prefs));
       saveProjectName(projectName);
     } catch {}
-  }, [files, openTabs, activeFile, prefs, projectName, hydrated]);
+  }, [files, editorGroups, activeGroupId, splitDirection, activeGroup.tabs, activeFile, prefs, projectName, hydrated]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -458,6 +547,48 @@ export default function CodeLabIDE() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [files, activeFile, activeLang, activeIsMedia, prefs.autoRun, hydrated]);
 
+  const handleSplitGroup = useCallback(
+    (sourceGroupId, explicitFile) => {
+      const targetId = sourceGroupId || activeGroupId;
+      if (editorGroups.length >= MAX_EDITOR_GROUPS && !explicitFile) {
+        showNotice(`الحد الأقصى لتقسيم الشاشة هو ${MAX_EDITOR_GROUPS} أقسام متزامنة`);
+        return;
+      }
+      const res = splitEditorGroup(editorGroups, targetId, explicitFile, files);
+      setEditorGroups(res.groups);
+      setActiveGroupId(res.activeGroupId);
+      if (res.didSplit) {
+        setGroupRatios(null);
+      }
+    },
+    [editorGroups, activeGroupId, files, showNotice]
+  );
+
+  const handleCloseGroup = useCallback(
+    (groupId) => {
+      const res = closeEditorGroup(editorGroups, groupId, activeGroupId);
+      setEditorGroups(res.groups);
+      setActiveGroupId(res.activeGroupId);
+      setGroupRatios(null);
+    },
+    [editorGroups, activeGroupId]
+  );
+
+  const handleToggleSplitDirection = useCallback(() => {
+    setSplitDirection((prev) => (prev === 'horizontal' ? 'vertical' : 'horizontal'));
+    setGroupRatios(null);
+  }, []);
+
+  const handleMoveActiveTab = useCallback(
+    (groupId, path) => {
+      const res = moveTabBetweenGroups(editorGroups, groupId, path, files);
+      setEditorGroups(res.groups);
+      setActiveGroupId(res.activeGroupId);
+      setGroupRatios(null);
+    },
+    [editorGroups, files]
+  );
+
   // Global IDE keyboard shortcuts
   useEffect(() => {
     const onKey = (e) => {
@@ -469,6 +600,9 @@ export default function CodeLabIDE() {
         e.preventDefault();
         setFocusMode(false);
         setPrefs((p) => ({ ...p, showExplorer: !p.showExplorer }));
+      } else if (mod && e.key === '\\') {
+        e.preventDefault();
+        handleSplitGroup(activeGroupId);
       } else if (mod && e.key.toLowerCase() === 'j') {
         e.preventDefault();
         setFocusMode(false);
@@ -494,25 +628,39 @@ export default function CodeLabIDE() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [doRun, showNotice, dockTab]);
+  }, [doRun, showNotice, dockTab, handleSplitGroup, activeGroupId]);
 
   // File management handlers
-  const handleSelectFile = useCallback((path) => {
-    setActiveFile(path);
-    setOpenTabs((tabs) => (tabs.includes(path) ? tabs : [...tabs, path]));
+  const handleSelectFile = useCallback(
+    (path, targetGroupId) => {
+      if (!path) return;
+      const gid = targetGroupId || activeGroupId;
+      setEditorGroups((prev) => openFileInGroup(prev, gid, path));
+      if (targetGroupId) setActiveGroupId(targetGroupId);
+    },
+    [activeGroupId]
+  );
+
+  const handleSelectTab = useCallback((groupId, path) => {
+    if (!path) return;
+    setActiveGroupId(groupId);
+    setEditorGroups((prev) => openFileInGroup(prev, groupId, path));
   }, []);
 
   const handleCloseTab = useCallback(
-    (path) => {
-      setOpenTabs((tabs) => {
-        const next = tabs.filter((t) => t !== path);
-        if (activeFile === path) {
-          setActiveFile(next[next.length - 1] || '');
+    (groupId, path) => {
+      setEditorGroups((prev) => {
+        const res = closeTabInGroup(prev, groupId, path, activeGroupId);
+        if (res.activeGroupId !== activeGroupId) {
+          setActiveGroupId(res.activeGroupId);
+          setGroupRatios(null);
+        } else if (res.groups.length !== prev.length) {
+          setGroupRatios(null);
         }
-        return next;
+        return res.groups;
       });
     },
-    [activeFile]
+    [activeGroupId]
   );
 
   const handleCreateFile = useCallback(
@@ -528,10 +676,9 @@ export default function CodeLabIDE() {
       const starter =
         initialContent !== undefined ? initialContent : getLangMeta(detected).starter || '';
       setFiles((prev) => ({ ...prev, [clean]: starter }));
-      setOpenTabs((tabs) => [...tabs, clean]);
-      setActiveFile(clean);
+      setEditorGroups((prev) => openFileInGroup(prev, activeGroupId, clean));
     },
-    [files, handleSelectFile, showNotice]
+    [files, activeGroupId, handleSelectFile, showNotice]
   );
 
   const handleCreateLanguageFile = useCallback(
@@ -553,11 +700,10 @@ export default function CodeLabIDE() {
         idx += 1;
       }
       setFiles((prev) => ({ ...prev, [baseName]: langMeta.starter || '' }));
-      setOpenTabs((tabs) => [...tabs, baseName]);
-      setActiveFile(baseName);
+      setEditorGroups((prev) => openFileInGroup(prev, activeGroupId, baseName));
       showNotice(`تم إنشاء ملف ${baseName} (${langMeta.label})`);
     },
-    [files, showNotice]
+    [files, activeGroupId, showNotice]
   );
 
   const handleRenameFile = useCallback(
@@ -572,10 +718,9 @@ export default function CodeLabIDE() {
         delete next[oldPath];
         return next;
       });
-      setOpenTabs((tabs) => tabs.map((t) => (t === oldPath ? newPath : t)));
-      if (activeFile === oldPath) setActiveFile(newPath);
+      setEditorGroups((prev) => renameFileInGroups(prev, oldPath, newPath));
     },
-    [files, activeFile, showNotice]
+    [files, showNotice]
   );
 
   const handleDuplicateFile = useCallback(
@@ -590,58 +735,105 @@ export default function CodeLabIDE() {
         candidate = `${base}-copy${idx}${ext}`;
       }
       setFiles((prev) => ({ ...prev, [candidate]: prev[path] }));
-      setOpenTabs((tabs) => [...tabs, candidate]);
-      setActiveFile(candidate);
+      setEditorGroups((prev) => openFileInGroup(prev, activeGroupId, candidate));
     },
-    [files]
+    [files, activeGroupId]
   );
 
   const handleDeleteFile = useCallback(
     (path) => {
-      const keys = Object.keys(files).filter((k) => k !== path);
-      if (keys.length === 0) return;
-      setFiles((prev) => {
-        const next = { ...prev };
-        delete next[path];
-        return next;
+      const remaining = { ...files };
+      delete remaining[path];
+      const keys = Object.keys(remaining);
+      setFiles(remaining);
+      setEditorGroups((prev) => {
+        const res = removeFileFromGroups(prev, path, remaining, activeGroupId);
+        setActiveGroupId(res.activeGroupId);
+        if (res.groups.length !== prev.length) setGroupRatios(null);
+        return res.groups;
       });
-      setOpenTabs((tabs) => {
-        const next = tabs.filter((t) => t !== path);
-        if (activeFile === path) {
-          const fallback = next[next.length - 1] || keys[0];
-          setActiveFile(fallback);
-          return next.length ? next : [keys[0]];
-        }
-        return next;
-      });
+      if (keys.length === 0) {
+        setPreviewDoc('');
+        setPreviewRev((n) => n + 1);
+        setConsoleLogs([]);
+        showNotice('تم حذف جميع الملفات من المشروع');
+      }
     },
-    [files, activeFile]
+    [files, activeGroupId, showNotice]
   );
 
   const handleClearAllFiles = useCallback(() => {
-    const starter = WORKSPACE_TEMPLATES[0].files;
-    setFiles(starter);
-    const keys = Object.keys(starter);
-    setOpenTabs([keys[0]]);
-    setActiveFile(keys[0]);
+    setFiles({});
+    setEditorGroups([{ id: 'group-1', tabs: [], activeFile: '' }]);
+    setActiveGroupId('group-1');
+    setGroupRatios(null);
+    setPreviewDoc('');
+    setPreviewRev((n) => n + 1);
     setConsoleLogs([]);
-    showNotice('تم مسح جميع الملفات وبدء مشروع فارغ جديد');
+    showNotice('تم حذف جميع الملفات من المشروع');
   }, [showNotice]);
 
   const handleImportFiles = useCallback(
-    (loaded, importedProjectName) => {
+    (loaded, importedProjectName, meta) => {
       setFiles((prev) => ({ ...prev, ...loaded }));
       if (importedProjectName) {
         setProjectName(sanitizeProjectName(importedProjectName));
       }
       const importedNames = Object.keys(loaded);
       if (importedNames.length) {
-        setOpenTabs((tabs) => Array.from(new Set([...tabs, ...importedNames])));
-        setActiveFile(importedNames[0]);
-        showNotice(`تم استيراد ${importedNames.length} ملف وحفظهم محلياً`);
+        const entry =
+          importedNames.find((p) => /^index\.html?$/i.test(p)) ||
+          importedNames.find((p) => /\/index\.html?$/i.test(p)) ||
+          importedNames.find((p) => /^(main|app|index)\.[^/]+$/i.test(p)) ||
+          importedNames.find((p) => !isMediaEntry(loaded[p])) ||
+          importedNames[0];
+        setEditorGroups((prev) => {
+          const targetId = prev.some((g) => g.id === activeGroupId) ? activeGroupId : prev[0]?.id || 'group-1';
+          const next = prev.map((g) => {
+            if (g.id !== targetId) return g;
+            return {
+              ...g,
+              tabs: Array.from(new Set([...g.tabs, entry, ...importedNames.slice(0, 8)])),
+              activeFile: entry,
+            };
+          });
+          return next;
+        });
+        setPrefs((p) => ({ ...p, showExplorer: true }));
+        showNotice(
+          meta?.source === 'zip'
+            ? `تم فك ضغط واستيراد ${importedNames.length} ملف داخل المحرر`
+            : `تم استيراد ${importedNames.length} ملف وحفظهم محلياً`
+        );
       }
     },
-    [showNotice]
+    [activeGroupId, showNotice]
+  );
+
+  const handleZipUpload = useCallback(
+    async (fileList) => {
+      const list = Array.from(fileList || []);
+      if (!list.length) return;
+      const merged = {};
+      let projectTitle = null;
+      for (const file of list) {
+        try {
+          const extracted = await extractZipArchive(file);
+          if (extracted.count === 0) {
+            showNotice(`الأرشيف ${file.name} فارغ ولا يحتوي على ملفات`);
+            continue;
+          }
+          Object.assign(merged, extracted.files);
+          if (extracted.projectName) projectTitle = extracted.projectName;
+        } catch {
+          showNotice(`تعذر فك ضغط الملف: ${file.name}`);
+        }
+      }
+      if (Object.keys(merged).length > 0) {
+        handleImportFiles(merged, projectTitle, { source: 'zip' });
+      }
+    },
+    [handleImportFiles, showNotice]
   );
 
   const handleInsertIntoHtml = useCallback(
@@ -658,11 +850,10 @@ export default function CodeLabIDE() {
         ? currentHtml.replace(/<\/body>/i, `  ${snippet}\n</body>`)
         : `${currentHtml}\n${snippet}\n`;
       setFiles((prev) => ({ ...prev, [htmlPath]: updated }));
-      setOpenTabs((tabs) => (tabs.includes(htmlPath) ? tabs : [...tabs, htmlPath]));
-      setActiveFile(htmlPath);
+      setEditorGroups((prev) => openFileInGroup(prev, activeGroupId, htmlPath));
       showNotice(`تم إدراج الوسم داخل ${htmlPath}`);
     },
-    [files, showNotice]
+    [files, activeGroupId, showNotice]
   );
 
   const handleRenameProject = useCallback((raw) => {
@@ -766,15 +957,14 @@ export default function CodeLabIDE() {
       const content = await file.text();
       const fileName = file.name || 'imported.txt';
       setFiles((prev) => ({ ...prev, [fileName]: content }));
-      setOpenTabs((tabs) => (tabs.includes(fileName) ? tabs : [...tabs, fileName]));
-      setActiveFile(fileName);
+      setEditorGroups((prev) => openFileInGroup(prev, activeGroupId, fileName));
       showNotice(`تم فتح الملف المحلي: ${fileName}`);
     } catch (err) {
       if (err?.name !== 'AbortError') {
         document.getElementById('codelab-local-file-input')?.click();
       }
     }
-  }, [showNotice]);
+  }, [activeGroupId, showNotice]);
 
   const handleFormat = useCallback(async () => {
     if (!activeFile || activeIsMedia) return;
@@ -796,8 +986,10 @@ export default function CodeLabIDE() {
   const handleLoadTemplate = useCallback(
     (tpl) => {
       setFiles({ ...tpl.files });
-      setOpenTabs(Object.keys(tpl.files));
-      setActiveFile(tpl.entryFile);
+      const initial = createInitialGroups(Object.keys(tpl.files), tpl.entryFile);
+      setEditorGroups(initial.groups);
+      setActiveGroupId(initial.activeGroupId);
+      setGroupRatios(null);
       setConsoleLogs([]);
       const isWeb = tpl.id === 'web-app';
       setFocusMode(false);
@@ -834,16 +1026,13 @@ export default function CodeLabIDE() {
   const handleUpdateFilesFromTerminal = useCallback(
     (nextFiles) => {
       setFiles(nextFiles);
-      const keys = Object.keys(nextFiles);
-      setOpenTabs((tabs) => {
-        const filtered = tabs.filter((t) => nextFiles[t] !== undefined);
-        return filtered.length ? filtered : keys.length ? [keys[0]] : [];
+      setEditorGroups((prev) => {
+        const res = normalizeGroups(prev, nextFiles, activeGroupId);
+        setActiveGroupId(res.activeGroupId);
+        return res.groups;
       });
-      if (activeFile && nextFiles[activeFile] === undefined) {
-        setActiveFile(keys[0] || '');
-      }
     },
-    [activeFile]
+    [activeGroupId]
   );
 
   const handleOpenFileFromTerminal = useCallback(
@@ -871,7 +1060,10 @@ export default function CodeLabIDE() {
     }));
   }, [files, activeFile]);
 
-  const handleEditorFocusChange = useCallback((focused) => {
+  const handleEditorGroupFocusChange = useCallback((groupId, focused) => {
+    if (focused) {
+      setActiveGroupId(groupId);
+    }
     setEditorFocused(focused);
     if (focused && typeof window !== 'undefined' && window.innerWidth < 1024) {
       setPrefs((p) =>
@@ -881,6 +1073,57 @@ export default function CodeLabIDE() {
       );
     }
   }, []);
+
+  const handleEditorGroupCursorChange = useCallback((groupId, nextCursor) => {
+    if (groupId === activeGroupIdRef.current) {
+      setCursor(nextCursor);
+    }
+  }, []);
+
+  const handleFileContentChange = useCallback((path, val) => {
+    setFiles((prev) => ({ ...prev, [path]: val }));
+  }, []);
+
+  const startSplitResize = useCallback(
+    (dividerIdx, e) => {
+      e.preventDefault();
+      const container = splitContainerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const totalSize = splitDirection === 'horizontal' ? rect.width : rect.height;
+      if (!totalSize) return;
+
+      const count = editorGroups.length;
+      const initialRatios =
+        groupRatios && groupRatios.length === count
+          ? [...groupRatios]
+          : Array.from({ length: count }, () => 100 / count);
+
+      const startPos = splitDirection === 'horizontal' ? e.clientX : e.clientY;
+      const combined = initialRatios[dividerIdx] + initialRatios[dividerIdx + 1];
+      const minPct = Math.min(20, combined / 2);
+
+      const onMove = (ev) => {
+        const curPos = splitDirection === 'horizontal' ? ev.clientX : ev.clientY;
+        const deltaPct = ((curPos - startPos) / totalSize) * 100;
+        const nextLeft = Math.min(combined - minPct, Math.max(minPct, initialRatios[dividerIdx] + deltaPct));
+        const nextRight = combined - nextLeft;
+        const updated = [...initialRatios];
+        updated[dividerIdx] = nextLeft;
+        updated[dividerIdx + 1] = nextRight;
+        setGroupRatios(updated);
+      };
+
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+      };
+
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    },
+    [splitDirection, editorGroups.length, groupRatios]
+  );
 
   const toggleExplorer = useCallback(() => {
     setFocusMode(false);
@@ -960,6 +1203,7 @@ export default function CodeLabIDE() {
       { id: 'run', label: 'تشغيل الكود الحالي', shortcut: 'Ctrl+Enter', action: () => doRun(false) },
       { id: 'focus', label: focusMode ? 'إلغاء وضع التركيز الكامل' : 'تفعيل وضع التركيز الكامل للكتابة', shortcut: 'Ctrl+Shift+F', action: () => setFocusMode((v) => !v) },
       { id: 'new-lang', label: 'إنشاء ملف بلغة برمجة (44 لغة)', shortcut: '', action: () => setLanguagesOpen(true) },
+      { id: 'import-zip', label: 'استيراد وفك ضغط ملف مضغوط (ZIP)', shortcut: '', action: () => zipInputRef.current?.click() },
       { id: 'github-push', label: 'رفع المشروع مباشرة إلى GitHub', shortcut: '', action: () => setGithubOpen(true) },
       { id: 'export-project', label: 'تسمية وتنزيل المشروع كاملاً (ZIP)', shortcut: '', action: () => setExportOpen(true) },
       { id: 'format', label: 'تنسيق الكود (Format)', shortcut: 'Toolbar', action: handleFormat },
@@ -1015,20 +1259,37 @@ export default function CodeLabIDE() {
         shortcut: '',
         action: () => setPrefs((p) => ({ ...p, theme: p.theme === 'dark' ? 'light' : 'dark' })),
       },
+      {
+        id: 'split-editor',
+        label: 'تقسيم شاشة المحرر لفتح أكثر من ملف (Split Editor)',
+        shortcut: 'Ctrl+\\',
+        action: () => handleSplitGroup(activeGroupId),
+      },
+      ...(editorGroups.length > 1
+        ? [
+            {
+              id: 'toggle-split-dir',
+              label:
+                splitDirection === 'horizontal'
+                  ? 'تبديل اتجاه التقسيم إلى أفقي (أعلى / أسفل)'
+                  : 'تبديل اتجاه التقسيم إلى عمودي (جنباً إلى جنب)',
+              shortcut: '',
+              action: handleToggleSplitDirection,
+            },
+            {
+              id: 'close-split-group',
+              label: 'إغلاق قسم المحرر الحالي (Close Editor Group)',
+              shortcut: '',
+              action: () => handleCloseGroup(activeGroupId),
+            },
+          ]
+        : []),
       { id: 'quick-open', label: 'فتح ملف سريع (Quick Open / Go to File)', shortcut: 'Ctrl+P', action: () => setQuickOpenOpen(true) },
       { id: 'shortcuts', label: 'عرض اختصارات لوحة المفاتيح', shortcut: '', action: () => setShortcutsOpen(true) },
       { id: 'review', label: 'تقرير تقييم وفحص جودة الكود (Code Review)', shortcut: '', action: () => setReviewOpen(true) },
     ],
-    [doRun, focusMode, handleFormat, prefs.showExplorer, prefs.showDock, prefs.showPreview, prefs.showMobileBar, prefs.wordWrap, prefs.theme, toggleExplorer, toggleDock, togglePreview, setReviewOpen, setQuickOpenOpen]
+    [doRun, focusMode, handleFormat, prefs.showExplorer, prefs.showDock, prefs.showPreview, prefs.showMobileBar, prefs.wordWrap, prefs.theme, toggleExplorer, toggleDock, togglePreview, handleSplitGroup, handleToggleSplitDirection, handleCloseGroup, activeGroupId, editorGroups.length, splitDirection, setReviewOpen, setQuickOpenOpen]
   );
-
-  const renderTabIcon = (path) => {
-    const kind = detectMediaKind(path, files[path]);
-    if (kind === 'image') return <ImageIcon className="w-3.5 h-3.5 shrink-0 text-emerald-500 dark:text-emerald-400" />;
-    if (kind === 'video') return <Film className="w-3.5 h-3.5 shrink-0 text-purple-500 dark:text-purple-400" />;
-    if (kind === 'audio') return <Music className="w-3.5 h-3.5 shrink-0 text-pink-500 dark:text-pink-400" />;
-    return <LanguageIcon lang={detectLang(path)} size={15} />;
-  };
 
   const typingFullMobile = isMobile && editorFocused;
   const showHeaderFull = !typingFullMobile && !focusMode;
@@ -1039,18 +1300,18 @@ export default function CodeLabIDE() {
 
   return (
     <div
-      className="h-[100dvh] flex flex-col bg-slate-50 text-slate-900 dark:bg-[#0b1120] dark:text-slate-100 overflow-hidden"
+      className="h-[100dvh] flex flex-col bg-white text-[#1e1e1e] dark:bg-[#1e1e1e] dark:text-[#cccccc] overflow-hidden"
       style={viewportHeight ? { height: `${viewportHeight}px` } : undefined}
     >
       {/* Distraction-free slim writing bar (mobile typing OR desktop focus mode) */}
       {(typingFullMobile || focusMode) && (
-        <div className="h-10 shrink-0 flex items-center justify-between gap-2 px-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0f172a]">
+        <div className="h-10 shrink-0 flex items-center justify-between gap-2 px-3 border-b border-[#e5e5e5] dark:border-[#2b2b2b] bg-[#f3f3f3] dark:bg-[#252526]">
           <div className="flex items-center gap-2 min-w-0">
             <LanguageIcon lang={activeLang} size={17} />
-            <span className="text-xs font-mono font-medium text-slate-800 dark:text-slate-100 truncate" dir="ltr">
+            <span className="text-xs font-mono font-medium text-[#1e1e1e] dark:text-[#cccccc] truncate" dir="ltr">
               {activeFile || projectName}
             </span>
-            <span className="hidden sm:inline text-[11px] text-slate-400 shrink-0">· {activeMeta.label}</span>
+            <span className="hidden sm:inline text-[11px] text-[#717171] dark:text-[#858585] shrink-0">· {activeMeta.label}</span>
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
@@ -1058,7 +1319,7 @@ export default function CodeLabIDE() {
               <button
                 type="button"
                 onClick={() => setFocusMode(false)}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-sm text-xs font-medium bg-[#e4e4e4] dark:bg-[#3c3c3c] text-[#1e1e1e] dark:text-[#cccccc] hover:bg-[#d4d4d4] dark:hover:bg-[#4a4a4a]"
               >
                 <Minimize2 className="w-3.5 h-3.5" />
                 <span>إنهاء التركيز</span>
@@ -1068,7 +1329,7 @@ export default function CodeLabIDE() {
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => editorApiRef.current?.blur()}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200"
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-sm text-xs font-medium bg-[#e4e4e4] dark:bg-[#3c3c3c] text-[#1e1e1e] dark:text-[#cccccc]"
               >
                 <Check className="w-3.5 h-3.5 text-emerald-500" />
                 <span>تم</span>
@@ -1079,7 +1340,7 @@ export default function CodeLabIDE() {
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => doRun(false)}
               disabled={running}
-              className="inline-flex items-center gap-1 px-3 py-1 rounded-md text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white disabled:opacity-60"
+              className="inline-flex items-center gap-1 px-3 py-1 rounded-sm text-xs font-semibold bg-[#007acc] hover:bg-[#1f8ad2] text-white disabled:opacity-60"
             >
               <Play className="w-3 h-3 fill-current" />
               <span>{running ? 'جارٍ...' : 'تشغيل'}</span>
@@ -1088,46 +1349,49 @@ export default function CodeLabIDE() {
         </div>
       )}
 
-      {/* 3-Zone Top Header Contract */}
+      {/* VS Code Title Bar */}
       {showHeaderFull && (
-      <header className="h-12 shrink-0 flex items-center justify-between gap-4 sm:gap-6 px-3 sm:px-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0f172a]">
+      <header className="h-10 shrink-0 flex items-center justify-between gap-4 sm:gap-6 px-3 sm:px-4 border-b border-[#d4d4d4] dark:border-[#2b2b2b] bg-[#dddddd] dark:bg-[#323233]">
         <div className="flex items-center gap-2.5 whitespace-nowrap shrink-0">
           <img
             src="/codelab-logo.jpg"
             alt="كود لاب"
-            className="w-7 h-7 rounded-lg object-cover shrink-0"
+            className="w-6 h-6 rounded object-cover shrink-0"
           />
-          <span className="text-base font-bold tracking-tight text-slate-900 dark:text-slate-100">
+          <span className="text-sm font-bold tracking-tight text-[#1e1e1e] dark:text-[#cccccc]">
             كود لاب
+          </span>
+          <span className="hidden md:inline text-[11px] font-mono text-[#616161] dark:text-[#8c8c8c]" dir="ltr">
+            — {projectName}
           </span>
         </div>
 
-        <nav className="flex items-center gap-3.5 sm:gap-6 text-xs sm:text-sm font-medium text-slate-600 dark:text-slate-300 overflow-x-auto no-scrollbar">
+        <nav className="flex items-center gap-3.5 sm:gap-5 text-xs font-medium text-[#333333] dark:text-[#cccccc] overflow-x-auto no-scrollbar">
           <button
             type="button"
             onClick={() => editorApiRef.current?.focus()}
-            className="hover:text-slate-900 dark:hover:text-white transition-colors whitespace-nowrap shrink-0"
+            className="hover:text-[#000000] dark:hover:text-white transition-colors whitespace-nowrap shrink-0"
           >
             المحرر
           </button>
           <button
             type="button"
             onClick={() => setLanguagesOpen(true)}
-            className="hover:text-slate-900 dark:hover:text-white transition-colors whitespace-nowrap shrink-0"
+            className="hover:text-[#000000] dark:hover:text-white transition-colors whitespace-nowrap shrink-0"
           >
             اللغات
           </button>
           <button
             type="button"
             onClick={() => setTemplatesOpen(true)}
-            className="hover:text-slate-900 dark:hover:text-white transition-colors whitespace-nowrap shrink-0"
+            className="hover:text-[#000000] dark:hover:text-white transition-colors whitespace-nowrap shrink-0"
           >
             القوالب
           </button>
           <button
             type="button"
             onClick={() => setShortcutsOpen(true)}
-            className="hover:text-slate-900 dark:hover:text-white transition-colors whitespace-nowrap shrink-0"
+            className="hover:text-[#000000] dark:hover:text-white transition-colors whitespace-nowrap shrink-0"
           >
             الاختصارات
           </button>
@@ -1138,7 +1402,7 @@ export default function CodeLabIDE() {
             type="button"
             onClick={() => doRun(false)}
             disabled={running}
-            className="inline-flex items-center gap-1.5 sm:gap-2 px-3.5 sm:px-4 py-1.5 rounded-lg text-xs font-semibold bg-sky-600 hover:bg-sky-500 disabled:opacity-60 text-white transition-colors whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-1 rounded-sm text-xs font-semibold bg-[#007acc] hover:bg-[#1f8ad2] disabled:opacity-60 text-white transition-colors whitespace-nowrap shrink-0"
           >
             <Play className="w-3.5 h-3.5 fill-current" />
             <span>{running ? 'جارٍ التشغيل' : 'تشغيل'}</span>
@@ -1147,9 +1411,9 @@ export default function CodeLabIDE() {
       </header>
       )}
 
-      {/* Consolidated IDE Workspace Toolbar (3 clean groups + Editor Settings popover) */}
+      {/* Consolidated IDE Workspace Toolbar */}
       {showToolbar && (
-      <div className="relative h-11 shrink-0 flex items-center justify-between gap-2 px-2.5 sm:px-3.5 border-b border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-[#0d1526]">
+      <div className="relative h-10 shrink-0 flex items-center justify-between gap-2 px-2.5 sm:px-3.5 border-b border-[#e5e5e5] dark:border-[#2b2b2b] bg-[#ececec] dark:bg-[#252526]">
         <div className="flex items-center gap-1.5 min-w-0 overflow-x-auto no-scrollbar">
           {/* Group 1: Workspace Panels */}
           <div className="flex items-center gap-1 shrink-0">
@@ -1225,6 +1489,16 @@ export default function CodeLabIDE() {
 
             <button
               type="button"
+              title="استيراد وفك ضغط ملف ZIP"
+              onClick={() => zipInputRef.current?.click()}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800/60 whitespace-nowrap shrink-0"
+            >
+              <FolderArchive className="w-3.5 h-3.5 text-amber-500" />
+              <span className="hidden md:inline">استيراد ZIP</span>
+            </button>
+
+            <button
+              type="button"
               title="تسمية وتنزيل المشروع"
               onClick={() => setExportOpen(true)}
               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800/60 whitespace-nowrap shrink-0"
@@ -1258,6 +1532,25 @@ export default function CodeLabIDE() {
             >
               <Wand2 className="w-3.5 h-3.5" />
               <span className="hidden lg:inline">تنسيق</span>
+            </button>
+
+            <button
+              type="button"
+              title="تقسيم شاشة المحرر (Ctrl+\)"
+              onClick={() => handleSplitGroup(activeGroupId)}
+              disabled={Object.keys(files).length === 0 || editorGroups.length >= MAX_EDITOR_GROUPS}
+              className={`inline-flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs transition-colors disabled:opacity-40 whitespace-nowrap shrink-0 ${
+                editorGroups.length > 1
+                  ? 'bg-[#007acc]/15 text-[#005fb8] dark:text-[#4fc1ff] font-medium'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-200/70 dark:hover:bg-slate-800/60'
+              }`}
+            >
+              {splitDirection === 'vertical' ? (
+                <Rows2 className="w-3.5 h-3.5" />
+              ) : (
+                <Columns2 className="w-3.5 h-3.5" />
+              )}
+              <span className="hidden lg:inline">تقسيم الشاشة</span>
             </button>
           </div>
         </div>
@@ -1422,8 +1715,111 @@ export default function CodeLabIDE() {
       </div>
       )}
 
-      {/* Main IDE Workspace */}
+      {/* Main VS Code IDE Workspace */}
       <div className="relative flex-1 min-h-0 flex overflow-hidden">
+        {/* VS Code Activity Bar */}
+        {!typingFullMobile && !focusMode && (
+          <aside
+            aria-label="شريط الأنشطة"
+            className="hidden md:flex w-11 shrink-0 flex-col items-center justify-between py-1.5 bg-[#2c2c2c] dark:bg-[#333333] text-[#858585] select-none border-l border-[#e5e5e5] dark:border-[#252526]"
+          >
+            <div className="flex flex-col items-center w-full gap-1">
+              <button
+                type="button"
+                title="مستكشف الملفات (Ctrl+B)"
+                onClick={toggleExplorer}
+                className={`relative w-full h-10 flex items-center justify-center transition-colors ${
+                  prefs.showExplorer ? 'text-white' : 'hover:text-white'
+                }`}
+              >
+                {prefs.showExplorer && (
+                  <span className="absolute right-0 inset-y-1.5 w-0.5 bg-white rounded-l" />
+                )}
+                <Files className="w-5 h-5" />
+              </button>
+
+              <button
+                type="button"
+                title="فتح ملف سريع (Ctrl+P)"
+                onClick={() => setQuickOpenOpen(true)}
+                className="w-full h-10 flex items-center justify-center hover:text-white transition-colors"
+              >
+                <Search className="w-5 h-5" />
+              </button>
+
+              <button
+                type="button"
+                title="اختيار لغة برمجة"
+                onClick={() => setLanguagesOpen(true)}
+                className="w-full h-10 flex items-center justify-center hover:text-white transition-colors"
+              >
+                <Languages className="w-5 h-5" />
+              </button>
+
+              <button
+                type="button"
+                title="قوالب المشاريع"
+                onClick={() => setTemplatesOpen(true)}
+                className="w-full h-10 flex items-center justify-center hover:text-white transition-colors"
+              >
+                <Layers className="w-5 h-5" />
+              </button>
+
+              <button
+                type="button"
+                title="الطرفية المتكاملة (Ctrl+`)"
+                onClick={() => {
+                  setDockTab('terminal');
+                  toggleDock();
+                }}
+                className={`relative w-full h-10 flex items-center justify-center transition-colors ${
+                  prefs.showDock ? 'text-white' : 'hover:text-white'
+                }`}
+              >
+                {prefs.showDock && (
+                  <span className="absolute right-0 inset-y-1.5 w-0.5 bg-white rounded-l" />
+                )}
+                <Terminal className="w-5 h-5" />
+              </button>
+
+              <button
+                type="button"
+                title="المشكلات وفحص الكود"
+                onClick={() => setReviewOpen(true)}
+                className="relative w-full h-10 flex items-center justify-center hover:text-white transition-colors"
+              >
+                <AlertTriangle className="w-5 h-5" />
+                {problems.length > 0 && (
+                  <span className="absolute top-1.5 left-1.5 min-w-[16px] h-4 px-1 rounded-full bg-[#007acc] text-white text-[10px] font-mono leading-4 text-center">
+                    {problems.length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            <div className="flex flex-col items-center w-full gap-1">
+              <button
+                type="button"
+                title="لوحة الأوامر (Ctrl+K)"
+                onClick={() => setPaletteOpen(true)}
+                className="w-full h-10 flex items-center justify-center hover:text-white transition-colors"
+              >
+                <Command className="w-5 h-5" />
+              </button>
+              <button
+                type="button"
+                title="إعدادات المحرر"
+                onClick={() => setSettingsOpen((v) => !v)}
+                className={`w-full h-10 flex items-center justify-center transition-colors ${
+                  settingsOpen ? 'text-white' : 'hover:text-white'
+                }`}
+              >
+                <Settings className="w-5 h-5" />
+              </button>
+            </div>
+          </aside>
+        )}
+
         {/* File Explorer Sidebar (drawer on mobile/tablet with backdrop) */}
         {showExplorerPane && (
           <>
@@ -1443,12 +1839,19 @@ export default function CodeLabIDE() {
                     setPrefs((prev) => ({ ...prev, showExplorer: false }));
                   }
                 }}
+                onOpenFileToSide={(p) => {
+                  handleSplitGroup(activeGroupId, p);
+                  if (typeof window !== 'undefined' && window.innerWidth < 768) {
+                    setPrefs((prev) => ({ ...prev, showExplorer: false }));
+                  }
+                }}
                 onCreateFile={handleCreateFile}
                 onOpenLanguagePicker={() => setLanguagesOpen(true)}
                 onRenameFile={handleRenameFile}
                 onDuplicateFile={handleDuplicateFile}
                 onDeleteFile={handleDeleteFile}
                 onImportFiles={handleImportFiles}
+                onImportError={showNotice}
                 onExportWorkspace={() => setExportOpen(true)}
                 onClearAllFiles={handleClearAllFiles}
                 onOpenLocalFile={handleOpenLocalFile}
@@ -1458,94 +1861,87 @@ export default function CodeLabIDE() {
           </>
         )}
 
-        {/* Center Editor + Bottom Output/Console + Mobile Coding Bar */}
-        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-          {/* Open Tabs Bar with Integrated Active File Path (auto-hidden during mobile typing for max code area) */}
-          {!typingFullMobile && (
+        {/* Center Editor Groups (Split-Screen Ready) + Bottom Output/Console + Mobile Coding Bar */}
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden bg-white dark:bg-[#1e1e1e]">
           <div
-            className="h-9 shrink-0 flex items-center justify-between bg-slate-100 dark:bg-[#0f172a] border-b border-slate-200 dark:border-slate-800"
+            ref={splitContainerRef}
             dir="ltr"
+            className={`flex-1 min-h-0 flex ${
+              splitDirection === 'vertical' ? 'flex-col' : 'flex-row'
+            } overflow-hidden`}
           >
-            <div className="flex-1 min-w-0 h-full flex items-center overflow-x-auto no-scrollbar">
-              {openTabs.map((path) => {
-                const isActive = path === activeFile;
-                const name = path.split('/').pop();
-                return (
-                  <div
-                    key={path}
-                    onClick={() => setActiveFile(path)}
-                    className={`group h-full flex items-center gap-2 px-3 border-r border-slate-200 dark:border-slate-800 text-xs font-mono cursor-pointer whitespace-nowrap shrink-0 transition-colors ${
-                      isActive
-                        ? 'bg-white dark:bg-[#0b1120] text-slate-900 dark:text-slate-100 border-t-2 border-t-sky-500'
-                        : 'text-slate-500 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800/50'
-                    }`}
-                  >
-                    {renderTabIcon(path)}
-                    <span>{name}</span>
-                    <button
-                      type="button"
-                      aria-label={`إغلاق ${name}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleCloseTab(path);
-                      }}
-                      className="p-0.5 rounded opacity-70 hover:opacity-100 hover:bg-slate-300/60 dark:hover:bg-slate-700"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
+            {editorGroups.map((group, idx) => {
+              const hasCustomRatio =
+                editorGroups.length > 1 &&
+                groupRatios &&
+                groupRatios.length === editorGroups.length;
+              const paneStyle = hasCustomRatio
+                ? { flex: `0 0 ${groupRatios[idx]}%` }
+                : undefined;
 
-            {activeFile && (
-              <div className="hidden md:flex items-center gap-2 px-3 text-[11px] font-mono text-slate-400 dark:text-slate-500 shrink-0 max-w-[280px]">
-                <span className="truncate">{activeFile}</span>
-                <span>·</span>
-                <LanguageIcon lang={activeLang} size={14} />
-                <span className="shrink-0 text-slate-500 dark:text-slate-400">{activeMeta.label}</span>
-              </div>
-            )}
-          </div>
-          )}
-
-          {/* CodeMirror Editor OR Media Viewer */}
-          <div className="flex-1 min-h-0 overflow-hidden">
-            {activeFile ? (
-              activeIsMedia ? (
-                <MediaViewerPane
-                  path={activeFile}
-                  media={activeEntry}
-                  onInsertIntoHtml={handleInsertIntoHtml}
-                />
-              ) : (
-                <CodeEditorPane
-                  value={activeCode}
-                  onChange={(val) => setFiles((prev) => ({ ...prev, [activeFile]: val }))}
-                  lang={activeLang}
-                  files={files}
-                  theme={prefs.theme}
-                  fontSize={prefs.fontSize}
-                  tabSize={prefs.tabSize}
-                  wordWrap={prefs.wordWrap}
-                  onCursorChange={setCursor}
-                  onFocusChange={handleEditorFocusChange}
-                  editorRefOut={editorApiRef}
-                  onRunShortcut={() => doRun(false)}
-                />
-              )
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center gap-3 text-sm text-slate-500 dark:text-slate-400">
-                <p>لا يوجد ملف مفتوح حالياً</p>
-                <button
-                  type="button"
-                  onClick={() => handleSelectFile(Object.keys(files)[0])}
-                  className="px-4 py-2 rounded-lg bg-sky-600 text-white text-xs font-semibold"
+              return (
+                <div
+                  key={group.id}
+                  className="contents"
                 >
-                  فتح الملف الرئيسي
-                </button>
-              </div>
-            )}
+                  <div
+                    style={paneStyle}
+                    className={`${
+                      hasCustomRatio ? '' : 'flex-1'
+                    } min-w-0 min-h-0 flex overflow-hidden`}
+                  >
+                    <EditorGroupPane
+                      group={group}
+                      groupIndex={idx}
+                      totalGroups={editorGroups.length}
+                      isFocusedGroup={group.id === activeGroup.id}
+                      splitDirection={splitDirection}
+                      files={files}
+                      projectName={projectName}
+                      theme={prefs.theme}
+                      fontSize={prefs.fontSize}
+                      tabSize={prefs.tabSize}
+                      wordWrap={prefs.wordWrap}
+                      typingFullMobile={typingFullMobile}
+                      onFocusGroup={setActiveGroupId}
+                      onSelectTab={handleSelectTab}
+                      onCloseTab={handleCloseTab}
+                      onSplitGroup={(gid) => handleSplitGroup(gid)}
+                      onToggleSplitDirection={handleToggleSplitDirection}
+                      onCloseGroup={handleCloseGroup}
+                      onMoveActiveTab={handleMoveActiveTab}
+                      onFileChange={handleFileContentChange}
+                      onCursorChange={handleEditorGroupCursorChange}
+                      onEditorFocusChange={handleEditorGroupFocusChange}
+                      onRegisterEditorApi={registerEditorApi}
+                      onRunShortcut={() => doRun(false)}
+                      onInsertIntoHtml={handleInsertIntoHtml}
+                      onOpenQuickOpen={() => setQuickOpenOpen(true)}
+                      onOpenLanguages={() => setLanguagesOpen(true)}
+                      onOpenTemplates={() => setTemplatesOpen(true)}
+                      onOpenZip={() => zipInputRef.current?.click()}
+                      onSelectFirstFile={(gid) => {
+                        const first = Object.keys(files)[0];
+                        if (first) handleSelectFile(first, gid);
+                      }}
+                    />
+                  </div>
+                  {idx < editorGroups.length - 1 && (
+                    <div
+                      role="separator"
+                      aria-orientation={splitDirection === 'vertical' ? 'horizontal' : 'vertical'}
+                      aria-label="تغيير حجم أقسام المحرر"
+                      onPointerDown={(e) => startSplitResize(idx, e)}
+                      className={`shrink-0 transition-colors select-none z-10 ${
+                        splitDirection === 'vertical'
+                          ? 'h-1 w-full cursor-row-resize border-y border-[#e5e5e5] dark:border-[#2b2b2b] bg-[#f3f3f3] dark:bg-[#252526] hover:bg-[#007acc]'
+                          : 'w-1 h-full cursor-col-resize border-x border-[#e5e5e5] dark:border-[#2b2b2b] bg-[#f3f3f3] dark:bg-[#252526] hover:bg-[#007acc]'
+                      }`}
+                    />
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {/* Bottom Terminal, Console & Problems Dock */}
@@ -1553,17 +1949,17 @@ export default function CodeLabIDE() {
             <div
               className={`${
                 dockExpanded ? 'h-72 sm:h-96' : 'h-40 sm:h-44'
-              } shrink-0 flex flex-col border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0f172a] transition-[height] duration-150`}
+              } shrink-0 flex flex-col border-t border-[#e5e5e5] dark:border-[#2b2b2b] bg-white dark:bg-[#1e1e1e] transition-[height] duration-150`}
             >
-              <div className="h-8 shrink-0 flex items-center justify-between px-3 border-b border-slate-200 dark:border-slate-800 overflow-x-auto">
+              <div className="h-8 shrink-0 flex items-center justify-between px-3 border-b border-[#e5e5e5] dark:border-[#2b2b2b] bg-[#f3f3f3] dark:bg-[#252526] overflow-x-auto">
                 <div className="flex items-center gap-4 text-xs shrink-0">
                   <button
                     type="button"
                     onClick={() => setDockTab('terminal')}
                     className={`h-8 flex items-center gap-1.5 border-b-2 transition-colors whitespace-nowrap shrink-0 ${
                       dockTab === 'terminal'
-                        ? 'border-sky-500 text-slate-900 dark:text-slate-100 font-semibold'
-                        : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                        ? 'border-[#007acc] text-[#1e1e1e] dark:text-white font-semibold'
+                        : 'border-transparent text-[#616161] dark:text-[#969696] hover:text-[#1e1e1e] dark:hover:text-white'
                     }`}
                   >
                     <Terminal className="w-3.5 h-3.5" />
@@ -1731,11 +2127,15 @@ export default function CodeLabIDE() {
           <section
             className={`${
               previewFullscreen
-                ? 'fixed inset-0 z-50 bg-slate-100 dark:bg-[#0b1120]'
-                : 'absolute inset-0 z-20 lg:static lg:z-auto flex lg:w-[38%] xl:w-[40%] lg:max-w-[560px] border-r border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-[#0f172a]'
+                ? 'fixed inset-0 z-50 bg-[#f3f3f3] dark:bg-[#1e1e1e]'
+                : `absolute inset-0 z-20 lg:static lg:z-auto flex ${
+                    editorGroups.length > 1 && splitDirection === 'horizontal'
+                      ? 'lg:w-[32%] xl:w-[33%] lg:max-w-[460px]'
+                      : 'lg:w-[38%] xl:w-[40%] lg:max-w-[560px]'
+                  } border-r border-[#e5e5e5] dark:border-[#2b2b2b] bg-[#f3f3f3] dark:bg-[#252526]`
             } flex flex-col shrink-0`}
           >
-            <div className="h-9 shrink-0 flex items-center justify-between gap-2 px-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0f172a]">
+            <div className="h-9 shrink-0 flex items-center justify-between gap-2 px-3 border-b border-[#e5e5e5] dark:border-[#2b2b2b] bg-[#ececec] dark:bg-[#252526]">
               <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 min-w-0">
                 <span className="font-semibold shrink-0">المعاينة الحية</span>
                 <span className="text-slate-400">·</span>
@@ -1842,52 +2242,49 @@ export default function CodeLabIDE() {
         )}
       </div>
 
-      {/* Quiet IDE Status Bar (auto-hides on mobile while typing or in Focus Mode) */}
+      {/* Authentic VS Code Blue Status Bar */}
       {!typingFullMobile && !focusMode && (
         <footer
           dir="ltr"
-          className="h-7 shrink-0 flex items-center justify-between px-3 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0f172a] text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400 select-none"
+          className="h-6 shrink-0 flex items-center justify-between px-3 bg-[#007acc] text-[11px] font-mono tabular-nums text-white select-none"
         >
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-2.5 min-w-0">
             <span className="truncate">
               Ln {cursor.line}, Col {cursor.col}
               {cursor.selected > 0 ? ` (${cursor.selected} selected)` : ''}
             </span>
-            <span className="hidden sm:inline text-slate-300 dark:text-slate-700">·</span>
+            <span className="hidden sm:inline opacity-60">|</span>
             <span className="hidden sm:inline">Spaces: {prefs.tabSize}</span>
-            <span className="hidden md:inline text-slate-300 dark:text-slate-700">·</span>
+            <span className="hidden md:inline opacity-60">|</span>
             <span className="hidden md:inline">UTF-8</span>
-            <span className="text-slate-300 dark:text-slate-700">·</span>
-            <LanguageIcon lang={activeLang} size={13} />
-            <span className="truncate">{activeMeta.label}</span>
+            <span className="opacity-60">|</span>
+            <span className="truncate font-semibold">{activeMeta.label}</span>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="text-[11px] text-slate-500 dark:text-slate-400 font-sans">
+          <div className="flex items-center gap-2.5 shrink-0">
+            <span className="hidden sm:inline text-[11px] font-sans opacity-95">
               Designed by{' '}
               <a
                 href="https://mahmoud-smoky.vercel.app/"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="font-semibold text-sky-600 dark:text-sky-400 hover:underline"
+                className="font-semibold underline underline-offset-2 hover:text-white/80"
               >
                 Mahmoud Medhat
               </a>
             </span>
-            <span className="hidden sm:inline text-slate-300 dark:text-slate-700">·</span>
-            <span className="hidden sm:inline">Local IndexedDB</span>
-            <span className="hidden sm:inline text-slate-300 dark:text-slate-700">·</span>
+            <span className="hidden sm:inline opacity-60">|</span>
+            <span className="hidden sm:inline opacity-90">IndexedDB</span>
+            <span className="hidden sm:inline opacity-60">|</span>
             <button
               type="button"
               title="عرض تقرير فحص وتقييم الكود (Code Review)"
               onClick={() => {
                 setReviewOpen(true);
               }}
-              className={`hover:text-slate-900 dark:hover:text-slate-100 ${
-                problems.length > 0 ? 'text-amber-500 font-semibold' : ''
-              }`}
+              className="hover:bg-white/15 px-1.5 py-0.5 rounded-sm transition-colors"
             >
-              Code Review: {problems.length} مشكلة
+              {problems.length > 0 ? `⚠ ${problems.length} مشكلة` : '✓ 0 مشاكل'}
             </button>
           </div>
         </footer>
@@ -1933,6 +2330,17 @@ export default function CodeLabIDE() {
       <ShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       <CodeReviewModal open={reviewOpen} onClose={() => setReviewOpen(false)} files={files} onSelectFile={handleSelectFile} />
       <QuickOpenModal open={quickOpenOpen} onClose={() => setQuickOpenOpen(false)} files={files} onSelectFile={handleSelectFile} />
+      <input
+        ref={zipInputRef}
+        type="file"
+        multiple
+        accept=".zip,application/zip,application/x-zip-compressed"
+        className="hidden"
+        onChange={(e) => {
+          handleZipUpload(e.target.files);
+          e.target.value = '';
+        }}
+      />
     </div>
   );
 }

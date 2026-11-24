@@ -18,7 +18,7 @@ export const viewport = {
 export default function RootLayout({ children }) {
   return (
     <html lang="ar" dir="rtl" className="dark" suppressHydrationWarning>
-      <body className="bg-slate-50 text-slate-900 dark:bg-[#0b1120] dark:text-slate-100 antialiased selection:bg-sky-500/30">
+      <body className="bg-white text-[#1e1e1e] dark:bg-[#1e1e1e] dark:text-[#cccccc] antialiased selection:bg-[#007acc]/30">
         {process.env.NODE_ENV !== 'production' && (
           <Script src="/api/pwa?clean=1" strategy="beforeInteractive" />
         )}

@@ -227,13 +227,21 @@ export function TemplatesModal({ open, onClose, onLoadTemplate }) {
 const SHORTCUTS = [
   ['Ctrl / Cmd + Enter', 'تشغيل الكود وتحديث المعاينة'],
   ['Ctrl / Cmd + K', 'فتح لوحة الأوامر والبحث السريع عن الملفات'],
+  ['Ctrl / Cmd + P', 'فتح ملف سريع (Quick Open)'],
   ['Ctrl / Cmd + F', 'البحث والاستبدال داخل الملف الحالي'],
+  ['Ctrl / Cmd + D', 'تحديد التكرار التالي للكلمة (Multi-cursor)'],
+  ['Ctrl / Cmd + Shift + L', 'تحديد جميع تكرارات الكلمة دفعة واحدة'],
+  ['Alt + ↑ / ↓', 'نقل السطر الحالي للأعلى أو الأسفل'],
+  ['Shift + Alt + ↓', 'تكرار السطر الحالي للأسفل'],
+  ['Ctrl / Cmd + Shift + K', 'حذف السطر الحالي بالكامل'],
+  ['Ctrl + Space', 'إظهار قائمة الإكمال التلقائي (IntelliSense)'],
   ['Ctrl / Cmd + B', 'إظهار أو إخفاء مستكشف الملفات'],
+  ['Ctrl / Cmd + \\', 'تقسيم شاشة المحرر لفتح أكثر من ملف'],
   ['Ctrl / Cmd + J', 'إظهار أو إخفاء اللوحة السفلية (Terminal / Console)'],
   ['Ctrl / Cmd + `', 'فتح أو إخفاء الطرفية المتكاملة (Terminal)'],
   ['Ctrl / Cmd + /', 'تفعيل أو تعطيل التعليق للأسطر المحددة'],
   ['Alt + Click', 'إضافة مؤشر كتابة متعدد (Multi-cursor)'],
-  ['Tab / Shift + Tab', 'زيادة أو تقليل المسافة البادئة'],
+  ['Tab / Shift + Tab', 'قبول الإكمال أو زيادة/تقليل المسافة البادئة'],
 ];
 
 export function ShortcutsModal({ open, onClose }) {
