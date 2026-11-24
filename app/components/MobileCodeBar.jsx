@@ -1,22 +1,25 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Undo2, Redo2, ChevronLeft, ChevronRight, Sparkles, Grid2X2, X, IndentIncrease } from 'lucide-react';
+import { Undo2, Redo2, ChevronLeft, ChevronRight, Braces, Grid2X2, X, IndentIncrease, ChevronUp, ChevronDown } from 'lucide-react';
 import { getMobileBarConfig } from '../lib/completions';
 
-export default function MobileCodeBar({ lang, editorApiRef }) {
+export default function MobileCodeBar({ lang, editorApiRef, compact = false }) {
   const [expanded, setExpanded] = useState(false);
+  const [showQuickStrip, setShowQuickStrip] = useState(false);
   const config = useMemo(() => getMobileBarConfig(lang), [lang]);
 
   const keepFocus = (e) => {
     e.preventDefault();
   };
 
+  const stripVisible = !compact || showQuickStrip;
+
   return (
     <div className="shrink-0 border-t border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-[#0f172a] select-none z-20">
       {/* Expandable full tags / properties drawer for the active language */}
       {expanded && (
-        <div className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] p-2 max-h-48 overflow-y-auto">
+        <div className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0b1120] p-2.5 max-h-44 overflow-y-auto">
           <div className="flex items-center justify-between px-1 pb-2">
             <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
               وسوم وخصائص {lang.toUpperCase()} ({config.quickItems.length})
@@ -53,16 +56,35 @@ export default function MobileCodeBar({ lang, editorApiRef }) {
         </div>
       )}
 
-      {/* Row 1: Language-specific tags / properties / snippets */}
-      <div
-        className="flex items-center gap-1.5 px-2 py-1.5 border-b border-slate-200/80 dark:border-slate-800/80 overflow-x-auto"
-        dir="ltr"
-      >
+      {/* Optional Row 1: Language-specific tags / properties / snippets (auto-hidden when typing to maximize editor visibility) */}
+      {stripVisible && (
+        <div
+          className="flex items-center gap-1.5 px-2.5 py-1 border-b border-slate-200/70 dark:border-slate-800/70 overflow-x-auto no-scrollbar"
+          dir="ltr"
+        >
+          {config.quickItems.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              title={item.detail}
+              onMouseDown={keepFocus}
+              onClick={() => editorApiRef.current?.insertSnippet(item.tpl)}
+              className="h-7 px-2 rounded-md font-mono text-[11px] font-medium bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sky-700 dark:text-sky-300 active:bg-sky-600 active:text-white whitespace-nowrap shrink-0 transition-colors"
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Compact Single Row: Tags drawer, Autocomplete, Navigation & Symbols */}
+      <div className="flex items-center gap-1 px-2 py-1 overflow-x-auto no-scrollbar" dir="ltr">
         <button
           type="button"
+          title="وسوم وخصائص اللغة"
           onMouseDown={keepFocus}
           onClick={() => setExpanded((v) => !v)}
-          className={`inline-flex items-center gap-1 px-2.5 h-8 rounded-md text-[11px] font-semibold whitespace-nowrap shrink-0 transition-colors ${
+          className={`inline-flex items-center gap-1 px-2 h-8 rounded-md text-[11px] font-semibold whitespace-nowrap shrink-0 transition-colors ${
             expanded
               ? 'bg-sky-600 text-white'
               : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700'
@@ -72,30 +94,26 @@ export default function MobileCodeBar({ lang, editorApiRef }) {
           <span>{config.quickItems.length}+</span>
         </button>
 
-        {config.quickItems.map((item) => (
+        {compact && (
           <button
-            key={item.label}
             type="button"
-            title={item.detail}
+            title={showQuickStrip ? 'إخفاء شريط الوسوم السريع' : 'إظهار شريط الوسوم السريع'}
             onMouseDown={keepFocus}
-            onClick={() => editorApiRef.current?.insertSnippet(item.tpl)}
-            className="h-8 px-2.5 rounded-md font-mono text-xs font-medium bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sky-700 dark:text-sky-300 active:bg-sky-600 active:text-white whitespace-nowrap shrink-0 transition-colors"
+            onClick={() => setShowQuickStrip((v) => !v)}
+            className="h-8 w-7 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 grid place-items-center shrink-0"
           >
-            {item.label}
+            {showQuickStrip ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
           </button>
-        ))}
-      </div>
+        )}
 
-      {/* Row 2: Essential navigation + coding symbols right above phone keyboard */}
-      <div className="flex items-center gap-1 px-2 py-1.5 overflow-x-auto" dir="ltr">
         <button
           type="button"
           title="إكمال تلقائي"
           onMouseDown={keepFocus}
           onClick={() => editorApiRef.current?.triggerAutocomplete()}
-          className="h-9 px-2.5 rounded-md bg-sky-600 text-white text-xs font-medium inline-flex items-center gap-1 shrink-0 active:bg-sky-500"
+          className="h-8 px-2 rounded-md bg-sky-600 text-white text-[11px] font-medium inline-flex items-center gap-1 shrink-0 active:bg-sky-500"
         >
-          <Sparkles className="w-3.5 h-3.5" />
+          <Braces className="w-3.5 h-3.5" />
           <span>إكمال</span>
         </button>
 
@@ -104,10 +122,9 @@ export default function MobileCodeBar({ lang, editorApiRef }) {
           title="Tab"
           onMouseDown={keepFocus}
           onClick={() => editorApiRef.current?.indent()}
-          className="h-9 px-2.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-mono inline-flex items-center gap-1 shrink-0 active:bg-slate-200 dark:active:bg-slate-700"
+          className="h-8 px-2 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 text-xs font-mono inline-flex items-center gap-1 shrink-0 active:bg-slate-200 dark:active:bg-slate-700"
         >
           <IndentIncrease className="w-3.5 h-3.5" />
-          <span>Tab</span>
         </button>
 
         <button
@@ -115,9 +132,9 @@ export default function MobileCodeBar({ lang, editorApiRef }) {
           title="تراجع"
           onMouseDown={keepFocus}
           onClick={() => editorApiRef.current?.undo()}
-          className="h-9 w-9 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 grid place-items-center shrink-0 active:bg-slate-200 dark:active:bg-slate-700"
+          className="h-8 w-8 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 grid place-items-center shrink-0 active:bg-slate-200 dark:active:bg-slate-700"
         >
-          <Undo2 className="w-4 h-4" />
+          <Undo2 className="w-3.5 h-3.5" />
         </button>
 
         <button
@@ -125,9 +142,9 @@ export default function MobileCodeBar({ lang, editorApiRef }) {
           title="إعادة"
           onMouseDown={keepFocus}
           onClick={() => editorApiRef.current?.redo()}
-          className="h-9 w-9 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 grid place-items-center shrink-0 active:bg-slate-200 dark:active:bg-slate-700"
+          className="h-8 w-8 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 grid place-items-center shrink-0 active:bg-slate-200 dark:active:bg-slate-700"
         >
-          <Redo2 className="w-4 h-4" />
+          <Redo2 className="w-3.5 h-3.5" />
         </button>
 
         <button
@@ -135,9 +152,9 @@ export default function MobileCodeBar({ lang, editorApiRef }) {
           title="تحريك المؤشر يساراً"
           onMouseDown={keepFocus}
           onClick={() => editorApiRef.current?.moveCursor(-1)}
-          className="h-9 w-9 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 grid place-items-center shrink-0 active:bg-slate-200 dark:active:bg-slate-700"
+          className="h-8 w-8 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 grid place-items-center shrink-0 active:bg-slate-200 dark:active:bg-slate-700"
         >
-          <ChevronLeft className="w-4 h-4" />
+          <ChevronLeft className="w-3.5 h-3.5" />
         </button>
 
         <button
@@ -145,22 +162,12 @@ export default function MobileCodeBar({ lang, editorApiRef }) {
           title="تحريك المؤشر يميناً"
           onMouseDown={keepFocus}
           onClick={() => editorApiRef.current?.moveCursor(1)}
-          className="h-9 w-9 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 grid place-items-center shrink-0 active:bg-slate-200 dark:active:bg-slate-700"
+          className="h-8 w-8 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 grid place-items-center shrink-0 active:bg-slate-200 dark:active:bg-slate-700"
         >
-          <ChevronRight className="w-4 h-4" />
+          <ChevronRight className="w-3.5 h-3.5" />
         </button>
 
-        <button
-          type="button"
-          title="تعليق السطر"
-          onMouseDown={keepFocus}
-          onClick={() => editorApiRef.current?.toggleComment()}
-          className="h-9 px-2.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-mono text-xs font-semibold shrink-0 active:bg-slate-200 dark:active:bg-slate-700"
-        >
-          //
-        </button>
-
-        <div className="w-px h-6 bg-slate-300 dark:bg-slate-700 mx-0.5 shrink-0" />
+        <div className="w-px h-5 bg-slate-300 dark:bg-slate-700 mx-0.5 shrink-0" />
 
         {config.symbols.map((sym) => (
           <button
@@ -168,7 +175,7 @@ export default function MobileCodeBar({ lang, editorApiRef }) {
             type="button"
             onMouseDown={keepFocus}
             onClick={() => editorApiRef.current?.insertSymbol(sym)}
-            className="h-9 min-w-[36px] px-2.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 font-mono text-sm font-semibold shrink-0 active:bg-sky-600 active:text-white transition-colors"
+            className="h-8 min-w-[32px] px-2 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 font-mono text-xs font-semibold shrink-0 active:bg-sky-600 active:text-white transition-colors"
           >
             {sym}
           </button>

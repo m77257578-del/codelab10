@@ -251,21 +251,64 @@ const EXTRA_LANG_SNIPPETS = {
   ],
   sql: [
     ['SELECT', 'Select query', 'SELECT ${1:*}\nFROM ${2:table_name}\nWHERE ${3:1 = 1};', 'keyword'],
-    ['INSERT', 'Insert row', 'INSERT INTO ${1:table_name} (${2:col1, col2})\nVALUES (${3:val1, val2});', 'keyword'],
+    ['SELECT DISTINCT', 'Unique values', 'SELECT DISTINCT ${1:column}\nFROM ${2:table_name};', 'keyword'],
+    ['INSERT INTO', 'Insert row(s)', 'INSERT INTO ${1:table_name} (${2:col1, col2})\nVALUES (${3:val1, val2});', 'keyword'],
     ['UPDATE', 'Update rows', 'UPDATE ${1:table_name}\nSET ${2:col = val}\nWHERE ${3:id = 1};', 'keyword'],
-    ['DELETE', 'Delete rows', 'DELETE FROM ${1:table_name}\nWHERE ${2:id = 1};', 'keyword'],
+    ['DELETE FROM', 'Delete rows', 'DELETE FROM ${1:table_name}\nWHERE ${2:id = 1};', 'keyword'],
     ['CREATE TABLE', 'Create table', 'CREATE TABLE ${1:users} (\n\tid INTEGER PRIMARY KEY,\n\t${2:name} TEXT NOT NULL\n);', 'keyword'],
-    ['INNER JOIN', 'Join tables', 'INNER JOIN ${1:other_table} ON ${2:a.id = b.a_id}', 'keyword'],
-    ['ORDER BY', 'Sort results', 'ORDER BY ${1:created_at} DESC', 'keyword'],
+    ['DROP TABLE', 'Drop table', 'DROP TABLE IF EXISTS ${1:table_name};', 'keyword'],
+    ['SHOW TABLES', 'List tables', 'SHOW TABLES;', 'keyword'],
+    ['INNER JOIN', 'Inner join tables', 'INNER JOIN ${1:other_table} ON ${2:a.id = b.a_id}', 'keyword'],
+    ['LEFT JOIN', 'Left join tables', 'LEFT JOIN ${1:other_table} ON ${2:a.id = b.a_id}', 'keyword'],
+    ['WHERE', 'Filter condition', 'WHERE ${1:column} = ${2:value}', 'keyword'],
+    ['ORDER BY', 'Sort results', 'ORDER BY ${1:created_at} ${2:DESC}', 'keyword'],
     ['GROUP BY', 'Group results', 'GROUP BY ${1:column}', 'keyword'],
+    ['LIMIT', 'Limit rows', 'LIMIT ${1:10}', 'keyword'],
+    ['COUNT(*)', 'Count rows', 'COUNT(*) AS ${1:total}', 'function'],
+    ['SUM()', 'Sum numeric column', 'SUM(${1:amount}) AS ${2:total}', 'function'],
+    ['AVG()', 'Average value', 'AVG(${1:price}) AS ${2:average}', 'function'],
+    ['MIN()', 'Minimum value', 'MIN(${1:col})', 'function'],
+    ['MAX()', 'Maximum value', 'MAX(${1:col})', 'function'],
   ],
   php: [
-    ['<?php', 'PHP tag', '<?php\n${1}\n', 'keyword'],
-    ['echo', 'Echo output', 'echo ${1};', 'function'],
-    ['function', 'PHP function', 'function ${1:name}(${2}) {\n\t${3}\n}', 'function'],
+    ['<?php', 'PHP open tag', '<?php\n${1}\n', 'keyword'],
+    ['echo', 'Print output', 'echo ${1:"Hello"} . "\\n";', 'function'],
+    ['print_r', 'Print readable array', 'print_r(${1:$array});', 'function'],
+    ['var_dump', 'Dump variable info', 'var_dump(${1:$var});', 'function'],
+    ['function', 'PHP function', 'function ${1:name}(${2:$arg}) {\n\t${3:return $arg;}\n}', 'function'],
     ['foreach', 'Foreach loop', 'foreach (${1:$items} as ${2:$item}) {\n\t${3}\n}', 'keyword'],
-    ['if', 'If block', 'if (${1:condition}) {\n\t${2}\n}', 'keyword'],
+    ['foreachkv', 'Foreach key => value', 'foreach (${1:$items} as ${2:$key} => ${3:$val}) {\n\t${4}\n}', 'keyword'],
+    ['for', 'For loop', 'for ($${1:i} = 0; $${1:i} < ${2:10}; $${1:i}++) {\n\t${3}\n}', 'keyword'],
+    ['if', 'If block', 'if (${1:$condition}) {\n\t${2}\n}', 'keyword'],
+    ['elseif', 'Else-if block', 'elseif (${1:$condition}) {\n\t${2}\n}', 'keyword'],
+    ['else', 'Else block', 'else {\n\t${1}\n}', 'keyword'],
+    ['while', 'While loop', 'while (${1:$condition}) {\n\t${2}\n}', 'keyword'],
     ['class', 'PHP class', 'class ${1:App} {\n\tpublic function ${2:run}() {\n\t\t${3}\n\t}\n}', 'class'],
+    ['count', 'Array count', 'count(${1:$items})', 'function'],
+    ['strlen', 'String length', 'strlen(${1:$str})', 'function'],
+    ['strtoupper', 'Uppercase string', 'strtoupper(${1:$str})', 'function'],
+    ['strtolower', 'Lowercase string', 'strtolower(${1:$str})', 'function'],
+    ['implode', 'Join array to string', 'implode("${1:, }", ${2:$items})', 'function'],
+    ['explode', 'Split string to array', 'explode("${1:,}", ${2:$str})', 'function'],
+    ['json_encode', 'Encode to JSON', 'json_encode(${1:$data})', 'function'],
+    ['json_decode', 'Decode JSON string', 'json_decode(${1:$json}, true)', 'function'],
+    ['array_map', 'Map array items', 'array_map(fn($x) => ${1:$x}, ${2:$items})', 'function'],
+    ['array_filter', 'Filter array items', 'array_filter(${1:$items}, fn($x) => ${2:true})', 'function'],
+    ['in_array', 'Check item in array', 'in_array(${1:$needle}, ${2:$haystack})', 'function'],
+    ['isset', 'Check variable set', 'isset(${1:$var})', 'function'],
+  ],
+  json: [
+    ['"key": "value"', 'String property', '"${1:key}": "${2:value}"', 'property'],
+    ['"key": 0', 'Number property', '"${1:count}": ${2:0}', 'property'],
+    ['"key": true', 'Boolean property', '"${1:enabled}": ${2:true}', 'property'],
+    ['"key": []', 'Array property', '"${1:items}": [\n\t${2}\n]', 'property'],
+    ['"key": {}', 'Object property', '"${1:config}": {\n\t${2}\n}', 'property'],
+    ['true', 'Boolean true', 'true', 'keyword'],
+    ['false', 'Boolean false', 'false', 'keyword'],
+    ['null', 'Null value', 'null', 'keyword'],
+    ['"name"', 'Package name', '"name": "${1:my-project}"', 'property'],
+    ['"version"', 'Version field', '"version": "${1:1.0.0}"', 'property'],
+    ['"scripts"', 'Scripts object', '"scripts": {\n\t"dev": "${1:next dev}"\n}', 'property'],
   ],
   csharp: [
     ['cw', 'Console.WriteLine', 'Console.WriteLine(${1});', 'function'],
@@ -304,6 +347,89 @@ const EXTRA_LANG_SNIPPETS = {
     ['echo', 'Print text', 'echo "${1}"', 'function'],
     ['if', 'If condition', 'if [ ${1:-f file} ]; then\n\t${2}\nfi', 'keyword'],
     ['for', 'For loop', 'for ${1:i} in ${2:1 2 3}; do\n\techo "$${1:i}"\ndone', 'keyword'],
+  ],
+  powershell: [
+    ['Write-Output', 'Print output', 'Write-Output ${1:"Hello"}', 'function'],
+    ['foreach', 'Foreach loop', 'foreach ($${1:item} in $${2:items}) {\n\t${3}\n}', 'keyword'],
+    ['if', 'If block', 'if (${1:$cond}) {\n\t${2}\n}', 'keyword'],
+  ],
+  lua: [
+    ['local', 'Local variable', 'local ${1:name} = ${2:value}', 'keyword'],
+    ['function', 'Lua function', 'local function ${1:name}(${2})\n\t${3}\nend', 'function'],
+    ['print', 'Print line', 'print(${1})', 'function'],
+  ],
+  r: [
+    ['c()', 'Combine vector', 'c(${1:1, 2, 3})', 'function'],
+    ['print', 'Print object', 'print(${1})', 'function'],
+    ['function', 'R function', '${1:fn} <- function(${2:x}) {\n\t${3}\n}', 'function'],
+  ],
+  perl: [
+    ['print', 'Print line', 'print "${1}\\n";', 'function'],
+    ['sub', 'Subroutine', 'sub ${1:name} {\n\tmy (${2:$arg}) = @_;\n\t${3}\n}', 'keyword'],
+  ],
+  haskell: [
+    ['putStrLn', 'Print line', 'putStrLn "${1}"', 'function'],
+    ['main', 'Main IO', 'main :: IO ()\nmain = ${1:putStrLn "Hello"}', 'function'],
+  ],
+  scala: [
+    ['println', 'Print line', 'println(${1})', 'function'],
+    ['def', 'Define method', 'def ${1:name}(${2}): ${3:Unit} = {\n\t${4}\n}', 'function'],
+    ['val', 'Immutable value', 'val ${1:x} = ${2}', 'keyword'],
+  ],
+  erlang: [
+    ['-module', 'Module header', '-module(${1:main}).\n-export([${2:start/0}]).', 'keyword'],
+    ['io:format', 'Print formatted', 'io:format("${1:~p~n}", [${2}]).', 'function'],
+  ],
+  julia: [
+    ['function', 'Julia function', 'function ${1:name}(${2})\n\t${3}\nend', 'function'],
+    ['println', 'Print line', 'println(${1})', 'function'],
+  ],
+  groovy: [
+    ['println', 'Print line', 'println ${1:"Hello"}', 'function'],
+    ['def', 'Define method/var', 'def ${1:name} = ${2}', 'keyword'],
+  ],
+  clojure: [
+    ['defn', 'Define function', '(defn ${1:name} [${2:arg}]\n\t${3})', 'function'],
+    ['println', 'Print line', '(println ${1})', 'function'],
+  ],
+  asm: [
+    ['mov', 'Move operand', 'mov ${1:$0}, ${2:%rax}', 'keyword'],
+    ['syscall', 'System call', 'syscall', 'keyword'],
+  ],
+  pascal: [
+    ['writeln', 'Write line', "writeln('${1}');", 'function'],
+    ['begin', 'Begin/End block', 'begin\n\t${1}\nend;', 'keyword'],
+  ],
+  fortran: [
+    ['print *', 'Print output', 'print *, "${1}"', 'function'],
+    ['program', 'Program block', 'program ${1:main}\n\t${2}\nend program ${1:main}', 'keyword'],
+  ],
+  yaml: [
+    ['services:', 'Services map', 'services:\n  ${1:app}:\n    image: ${2:node:22}', 'property'],
+    ['key: val', 'Key/value pair', '${1:key}: ${2:value}', 'property'],
+  ],
+  toml: [
+    ['[section]', 'TOML table', '[${1:package}]\n${2:name} = "${3:app}"', 'property'],
+  ],
+  markdown: [
+    ['# Heading', 'Heading 1', '# ${1:Title}', 'heading'],
+    ['```code', 'Code fence', '```${1:js}\n${2}\n```', 'snippet'],
+    ['[link](url)', 'Markdown link', '[${1:text}](${2:https://})', 'snippet'],
+  ],
+  dockerfile: [
+    ['FROM', 'Base image', 'FROM ${1:node:22-alpine}', 'keyword'],
+    ['WORKDIR', 'Working dir', 'WORKDIR ${1:/app}', 'keyword'],
+    ['COPY', 'Copy files', 'COPY ${1:.} ${2:.}', 'keyword'],
+    ['RUN', 'Run command', 'RUN ${1:npm install}', 'keyword'],
+    ['CMD', 'Container command', 'CMD ["${1:npm}", "${2:start}"]', 'keyword'],
+  ],
+  nginx: [
+    ['server', 'Server block', 'server {\n\tlisten ${1:80};\n\tserver_name ${2:example.com};\n}', 'keyword'],
+    ['location', 'Location block', 'location ${1:/} {\n\t${2}\n}', 'keyword'],
+  ],
+  latex: [
+    ['\\section{}', 'Section heading', '\\section{${1:Title}}', 'keyword'],
+    ['\\begin{}', 'Environment block', '\\begin{${1:itemize}}\n\t\\item ${2}\n\\end{${1:itemize}}', 'keyword'],
   ],
 };
 
@@ -457,7 +583,7 @@ export function createLanguageCompletionSource(lang, filesRef) {
       return {
         from,
         options: [...toCompletions(extra, 'keyword', 16), ...workspaceItems],
-        validFor: /^[<\w._!?]*$/,
+        validFor: /^[\$<\w._!?":-]*$/,
       };
     }
 
@@ -547,16 +673,16 @@ export function getMobileBarConfig(lang) {
     case 'json':
       return {
         symbols: ['{', '}', '[', ']', '"', ':', ',', 'true', 'false', 'null'],
-        quickItems: [
-          { label: '"key": "val"', detail: 'زوج مفتاح وقيمة', tpl: '"${1:key}": "${2:value}"' },
-          { label: '"arr": []', detail: 'مصفوفة JSON', tpl: '"${1:items}": [\n\t${2}\n]' },
-          { label: '"obj": {}', detail: 'كائن JSON', tpl: '"${1:object}": {\n\t${2}\n}' },
-        ],
+        quickItems: EXTRA_LANG_SNIPPETS.json.map(([label, detail, tpl]) => ({ label, detail, tpl })),
       };
     default:
       return {
         symbols: ['(', ')', '{', '}', '[', ']', '=', ';', ':', '"', "'", '<', '>', '/'],
-        quickItems: JS_SNIPPETS.slice(0, 12).map(([label, detail, tpl]) => ({ label, detail, tpl })),
+        quickItems: (EXTRA_LANG_SNIPPETS[lang] || JS_SNIPPETS.slice(0, 12)).map(([label, detail, tpl]) => ({
+          label,
+          detail,
+          tpl,
+        })),
       };
   }
 }

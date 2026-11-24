@@ -34,6 +34,8 @@ export const TERMINAL_COMMANDS = [
   'python',
   'python3',
   'py',
+  'php',
+  'sql',
   'npm',
   'build',
   'vite',
@@ -817,6 +819,43 @@ export async function executeTerminalLine(rawLine, ctx, depth = 0) {
         if (trimmed) write('stdout', trimmed);
         else write('muted', '(finished with no stdout)');
         if (res.stderr) write('warn', res.stderr);
+        return 0;
+      }
+
+      if (cmd === 'php' || cmd === 'sql') {
+        if (args[0] === '-v' || args[0] === '--version') {
+          write('stdout', cmd === 'php' ? 'PHP 8.3 (CodeLab Local Sandbox)' : 'SQLite/ANSI SQL (CodeLab In-Memory Engine)');
+          return 0;
+        }
+        if ((cmd === 'php' && args[0] === '-r') || (cmd === 'sql' && args[0] === '-e')) {
+          const inlineSrc = args.slice(1).join(' ');
+          if (!inlineSrc) {
+            write('error', `${cmd}: missing inline code`);
+            return 1;
+          }
+          const res = await runCode(cmd, inlineSrc, files);
+          if (res.err) {
+            write('error', arJs(res.err));
+            return 1;
+          }
+          if (res.out) write('stdout', res.out.trimEnd());
+          return 0;
+        }
+        const targetArg = args[0] || ctx.activeFile;
+        const resolved = normalizePath(cwd, targetArg);
+        const entry = files[resolved];
+        if (typeof entry !== 'string') {
+          write('error', `${cmd}: cannot open '${targetArg}': No such file`);
+          return 1;
+        }
+        const res = await runCode(cmd, entry, files);
+        if (res.err) {
+          write('error', arJs(res.err));
+          return 1;
+        }
+        const trimmed = (res.out || '').trimEnd();
+        if (trimmed) write('stdout', trimmed);
+        else write('muted', '(finished with no stdout)');
         return 0;
       }
 

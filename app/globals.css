@@ -37,10 +37,24 @@ body {
   line-height: 1.65;
 }
 
+.cm-content {
+  padding-top: 8px !important;
+  padding-bottom: 12px !important;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 /* Subtle thin scrollbars for IDE panes */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
 }
 
 ::-webkit-scrollbar-track {
@@ -80,9 +94,13 @@ body {
 }
 
 @media (max-width: 767px) {
+  .cm-tooltip-autocomplete > ul {
+    max-height: 148px !important;
+  }
+
   .cm-tooltip-autocomplete > ul > li {
-    min-height: 36px;
-    padding: 8px 12px !important;
+    min-height: 34px;
+    padding: 6px 10px !important;
   }
 }
 

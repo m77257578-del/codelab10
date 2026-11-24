@@ -90,50 +90,50 @@ export const FILE_EXT_TO_LANG = {
 };
 
 export const LANG_META = {
-  html: { label: 'HTML', ext: 'html', runnable: true, preview: true, color: 'text-orange-500 dark:text-orange-400', starter: '<!DOCTYPE html>\n<html lang="ar" dir="rtl">\n<head>\n  <meta charset="UTF-8" />\n  <title>صفحة جديدة</title>\n</head>\n<body>\n  <h1>مرحباً</h1>\n</body>\n</html>\n' },
-  css: { label: 'CSS', ext: 'css', runnable: true, preview: true, color: 'text-sky-500 dark:text-sky-400', starter: 'body {\n  margin: 0;\n  font-family: system-ui, sans-serif;\n}\n' },
-  scss: { label: 'SCSS / Sass', ext: 'scss', runnable: false, preview: false, color: 'text-pink-500 dark:text-pink-400', starter: '$primary: #0ea5e9;\n\n.card {\n  border: 1px solid $primary;\n  padding: 16px;\n}\n' },
-  js: { label: 'JavaScript', ext: 'js', runnable: true, preview: false, color: 'text-amber-500 dark:text-amber-400', starter: "console.log('Hello from JavaScript!');\n" },
-  jsx: { label: 'JSX / React', ext: 'jsx', runnable: true, preview: false, color: 'text-cyan-500 dark:text-cyan-400', starter: "const App = () => 'Hello JSX';\nconsole.log(App());\n" },
-  ts: { label: 'TypeScript', ext: 'ts', runnable: true, preview: false, color: 'text-blue-500 dark:text-blue-400', starter: 'interface User {\n  name: string;\n  role: string;\n}\n\nconst greet = (user: User): string => `مرحباً ${user.name} (${user.role})`;\nconsole.log(greet({ name: "أحمد", role: "Developer" }));\n' },
-  tsx: { label: 'TSX / TypeScript React', ext: 'tsx', runnable: true, preview: false, color: 'text-blue-500 dark:text-blue-400', starter: 'type Item = { id: number; title: string };\nconst items: Item[] = [{ id: 1, title: "CodeLab" }];\nconsole.log(items);\n' },
-  python: { label: 'Python', ext: 'py', runnable: true, preview: false, color: 'text-emerald-500 dark:text-emerald-400', starter: 'def main():\n    print("Hello from Python!")\n\nif __name__ == "__main__":\n    main()\n' },
-  c: { label: 'C', ext: 'c', runnable: true, preview: false, color: 'text-indigo-500 dark:text-indigo-400', starter: '#include <iostream>\nusing namespace std;\n\nint main() {\n  cout << "Hello from C!" << endl;\n  return 0;\n}\n' },
-  cpp: { label: 'C++', ext: 'cpp', runnable: true, preview: false, color: 'text-indigo-500 dark:text-indigo-400', starter: '#include <iostream>\nusing namespace std;\n\nint main() {\n  cout << "Hello from C++!" << endl;\n  return 0;\n}\n' },
-  csharp: { label: 'C#', ext: 'cs', runnable: false, preview: false, color: 'text-violet-500 dark:text-violet-400', starter: 'using System;\n\nclass Program {\n  static void Main() {\n    Console.WriteLine("Hello from C#!");\n  }\n}\n' },
-  java: { label: 'Java', ext: 'java', runnable: true, preview: false, color: 'text-rose-500 dark:text-rose-400', starter: 'public class Main {\n  public static void main(String[] args) {\n    System.out.println("Hello from Java!");\n  }\n}\n' },
-  kotlin: { label: 'Kotlin', ext: 'kt', runnable: false, preview: false, color: 'text-purple-500 dark:text-purple-400', starter: 'fun main() {\n  val message = "Hello from Kotlin!"\n  println(message)\n}\n' },
-  swift: { label: 'Swift', ext: 'swift', runnable: false, preview: false, color: 'text-orange-500 dark:text-orange-400', starter: 'import Foundation\n\nfunc greet(name: String) -> String {\n  return "Hello, \\(name)!"\n}\nprint(greet(name: "Swift"))\n' },
-  go: { label: 'Go', ext: 'go', runnable: false, preview: false, color: 'text-cyan-500 dark:text-cyan-400', starter: 'package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Println("Hello from Go!")\n}\n' },
-  rust: { label: 'Rust', ext: 'rs', runnable: false, preview: false, color: 'text-orange-600 dark:text-orange-400', starter: 'fn main() {\n    let lang = "Rust";\n    println!("Hello from {}!", lang);\n}\n' },
-  php: { label: 'PHP', ext: 'php', runnable: false, preview: false, color: 'text-indigo-400', starter: '<?php\n$name = "CodeLab";\necho "Hello from $name!\\n";\n' },
-  ruby: { label: 'Ruby', ext: 'rb', runnable: false, preview: false, color: 'text-red-500 dark:text-red-400', starter: 'def greet(name)\n  "Hello, #{name}!"\nend\n\nputs greet("Ruby")\n' },
-  dart: { label: 'Dart', ext: 'dart', runnable: false, preview: false, color: 'text-sky-500 dark:text-sky-400', starter: 'void main() {\n  print("Hello from Dart!");\n}\n' },
-  sql: { label: 'SQL', ext: 'sql', runnable: false, preview: false, color: 'text-amber-600 dark:text-amber-400', starter: 'SELECT id, username, created_at\nFROM users\nWHERE active = 1\nORDER BY created_at DESC;\n' },
-  bash: { label: 'Bash / Shell', ext: 'sh', runnable: false, preview: false, color: 'text-lime-600 dark:text-lime-400', starter: '#!/usr/bin/env bash\necho "Hello from Bash"\n' },
-  powershell: { label: 'PowerShell', ext: 'ps1', runnable: false, preview: false, color: 'text-blue-500 dark:text-blue-400', starter: '$name = "CodeLab"\nWrite-Output "Hello from $name"\n' },
-  lua: { label: 'Lua', ext: 'lua', runnable: false, preview: false, color: 'text-indigo-500 dark:text-indigo-400', starter: 'local function greet(name)\n  print("Hello " .. name)\nend\n\ngreet("Lua")\n' },
-  r: { label: 'R', ext: 'r', runnable: false, preview: false, color: 'text-blue-600 dark:text-blue-400', starter: 'nums <- c(10, 20, 30, 40)\nprint(mean(nums))\n' },
-  perl: { label: 'Perl', ext: 'pl', runnable: false, preview: false, color: 'text-teal-500 dark:text-teal-400', starter: 'use strict;\nuse warnings;\nprint "Hello from Perl!\\n";\n' },
-  haskell: { label: 'Haskell', ext: 'hs', runnable: false, preview: false, color: 'text-purple-500 dark:text-purple-400', starter: 'main :: IO ()\nmain = putStrLn "Hello from Haskell!"\n' },
-  scala: { label: 'Scala', ext: 'scala', runnable: false, preview: false, color: 'text-red-500 dark:text-red-400', starter: 'object Main extends App {\n  println("Hello from Scala!")\n}\n' },
-  erlang: { label: 'Erlang / Elixir', ext: 'erl', runnable: false, preview: false, color: 'text-fuchsia-500 dark:text-fuchsia-400', starter: '-module(main).\n-export([start/0]).\n\nstart() ->\n  io:format("Hello from Erlang!~n").\n' },
-  julia: { label: 'Julia', ext: 'jl', runnable: false, preview: false, color: 'text-emerald-500 dark:text-emerald-400', starter: 'function greet(name)\n    println("Hello from $name!")\nend\n\ngreet("Julia")\n' },
-  groovy: { label: 'Groovy', ext: 'groovy', runnable: false, preview: false, color: 'text-sky-600 dark:text-sky-400', starter: 'println "Hello from Groovy!"\n' },
-  clojure: { label: 'Clojure', ext: 'clj', runnable: false, preview: false, color: 'text-green-500 dark:text-green-400', starter: '(defn greet [name]\n  (str "Hello, " name "!"))\n\n(println (greet "Clojure"))\n' },
-  asm: { label: 'Assembly (GAS)', ext: 'asm', runnable: false, preview: false, color: 'text-slate-500 dark:text-slate-400', starter: '.global _start\n.text\n_start:\n    mov $60, %rax\n    xor %rdi, %rdi\n    syscall\n' },
-  pascal: { label: 'Pascal', ext: 'pas', runnable: false, preview: false, color: 'text-amber-500 dark:text-amber-400', starter: 'program Hello;\nbegin\n  writeln(\'Hello from Pascal!\');\nend.\n' },
-  fortran: { label: 'Fortran', ext: 'f90', runnable: false, preview: false, color: 'text-indigo-400', starter: 'program hello\n  print *, "Hello from Fortran!"\nend program hello\n' },
-  json: { label: 'JSON', ext: 'json', runnable: false, preview: false, color: 'text-teal-500 dark:text-teal-400', starter: '{\n  "name": "codelab-project",\n  "version": "1.0.0"\n}\n' },
-  yaml: { label: 'YAML', ext: 'yaml', runnable: false, preview: false, color: 'text-rose-400', starter: 'name: codelab\nservices:\n  web:\n    port: 3000\n' },
-  toml: { label: 'TOML', ext: 'toml', runnable: false, preview: false, color: 'text-orange-400', starter: '[package]\nname = "codelab"\nversion = "0.1.0"\n' },
-  xml: { label: 'XML', ext: 'xml', runnable: false, preview: false, color: 'text-orange-500 dark:text-orange-400', starter: '<?xml version="1.0" encoding="UTF-8"?>\n<root>\n  <item>CodeLab</item>\n</root>\n' },
-  svg: { label: 'SVG', ext: 'svg', runnable: true, preview: true, color: 'text-amber-500 dark:text-amber-400', starter: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" width="200" height="120">\n  <rect width="200" height="120" rx="12" fill="#0f172a"/>\n  <circle cx="100" cy="60" r="32" fill="#0ea5e9"/>\n</svg>\n' },
-  markdown: { label: 'Markdown', ext: 'md', runnable: true, preview: true, color: 'text-slate-500 dark:text-slate-400', starter: '# عنوان المستند\n\nاكتب ملاحظاتك هنا باستخدام **Markdown**.\n' },
-  dockerfile: { label: 'Dockerfile', ext: 'Dockerfile', runnable: false, preview: false, color: 'text-sky-500 dark:text-sky-400', starter: 'FROM node:22-slim\nWORKDIR /app\nCOPY . .\nRUN npm install\nCMD ["npm", "start"]\n' },
-  nginx: { label: 'Nginx Config', ext: 'conf', runnable: false, preview: false, color: 'text-emerald-500 dark:text-emerald-400', starter: 'server {\n  listen 80;\n  server_name example.com;\n}\n' },
-  latex: { label: 'LaTeX', ext: 'tex', runnable: false, preview: false, color: 'text-teal-600 dark:text-teal-400', starter: '\\documentclass{article}\n\\begin{document}\nHello from LaTeX!\n\\end{document}\n' },
-  text: { label: 'Plain Text', ext: 'txt', runnable: false, preview: false, color: 'text-slate-500 dark:text-slate-400', starter: '' },
+  html: { label: 'HTML', ext: 'html', category: 'web', runnable: true, preview: true, color: 'text-orange-500 dark:text-orange-400', starter: '<!DOCTYPE html>\n<html lang="ar" dir="rtl">\n<head>\n  <meta charset="UTF-8" />\n  <title>صفحة جديدة</title>\n</head>\n<body>\n  <h1>مرحباً</h1>\n</body>\n</html>\n' },
+  css: { label: 'CSS', ext: 'css', category: 'web', runnable: true, preview: true, color: 'text-sky-500 dark:text-sky-400', starter: 'body {\n  margin: 0;\n  font-family: system-ui, sans-serif;\n}\n' },
+  scss: { label: 'SCSS / Sass', ext: 'scss', category: 'web', runnable: false, preview: false, color: 'text-pink-500 dark:text-pink-400', starter: '$primary: #0ea5e9;\n\n.card {\n  border: 1px solid $primary;\n  padding: 16px;\n}\n' },
+  js: { label: 'JavaScript', ext: 'js', category: 'web', runnable: true, preview: false, color: 'text-amber-500 dark:text-amber-400', starter: "console.log('Hello from JavaScript!');\n" },
+  jsx: { label: 'JSX / React', ext: 'jsx', category: 'web', runnable: true, preview: false, color: 'text-cyan-500 dark:text-cyan-400', starter: "const App = () => 'Hello JSX';\nconsole.log(App());\n" },
+  ts: { label: 'TypeScript', ext: 'ts', category: 'web', runnable: true, preview: false, color: 'text-blue-500 dark:text-blue-400', starter: 'interface User {\n  name: string;\n  role: string;\n}\n\nconst greet = (user: User): string => `مرحباً ${user.name} (${user.role})`;\nconsole.log(greet({ name: "أحمد", role: "Developer" }));\n' },
+  tsx: { label: 'TSX / TypeScript React', ext: 'tsx', category: 'web', runnable: true, preview: false, color: 'text-blue-500 dark:text-blue-400', starter: 'type Item = { id: number; title: string };\nconst items: Item[] = [{ id: 1, title: "CodeLab" }];\nconsole.log(items);\n' },
+  php: { label: 'PHP', ext: 'php', category: 'web', runnable: true, preview: false, color: 'text-indigo-400', starter: '<?php\n$app = "CodeLab PHP";\n$langs = ["PHP", "SQL", "JSON"];\n\necho "مرحباً من $app!\\n";\nforeach ($langs as $i => $lang) {\n  echo ($i + 1) . ". " . $lang . "\\n";\n}\n' },
+  sql: { label: 'SQL', ext: 'sql', category: 'data', runnable: true, preview: false, color: 'text-amber-600 dark:text-amber-400', starter: 'CREATE TABLE users (\n  id INTEGER PRIMARY KEY,\n  username TEXT NOT NULL,\n  role TEXT\n);\n\nINSERT INTO users (id, username, role) VALUES (1, \'ahmed\', \'admin\'), (2, \'sara\', \'developer\');\n\nSELECT id, username, role\nFROM users\nORDER BY id ASC;\n' },
+  json: { label: 'JSON', ext: 'json', category: 'data', runnable: true, preview: false, color: 'text-teal-500 dark:text-teal-400', starter: '{\n  "name": "codelab-project",\n  "version": "1.0.0",\n  "languages": ["JSON", "SQL", "PHP", "Python", "JS"]\n}\n' },
+  python: { label: 'Python', ext: 'py', category: 'systems', runnable: true, preview: false, color: 'text-emerald-500 dark:text-emerald-400', starter: 'def main():\n    print("Hello from Python!")\n\nif __name__ == "__main__":\n    main()\n' },
+  c: { label: 'C', ext: 'c', category: 'systems', runnable: true, preview: false, color: 'text-indigo-500 dark:text-indigo-400', starter: '#include <iostream>\nusing namespace std;\n\nint main() {\n  cout << "Hello from C!" << endl;\n  return 0;\n}\n' },
+  cpp: { label: 'C++', ext: 'cpp', category: 'systems', runnable: true, preview: false, color: 'text-indigo-500 dark:text-indigo-400', starter: '#include <iostream>\nusing namespace std;\n\nint main() {\n  cout << "Hello from C++!" << endl;\n  return 0;\n}\n' },
+  csharp: { label: 'C#', ext: 'cs', category: 'systems', runnable: false, preview: false, color: 'text-violet-500 dark:text-violet-400', starter: 'using System;\n\nclass Program {\n  static void Main() {\n    Console.WriteLine("Hello from C#!");\n  }\n}\n' },
+  java: { label: 'Java', ext: 'java', category: 'systems', runnable: true, preview: false, color: 'text-rose-500 dark:text-rose-400', starter: 'public class Main {\n  public static void main(String[] args) {\n    System.out.println("Hello from Java!");\n  }\n}\n' },
+  kotlin: { label: 'Kotlin', ext: 'kt', category: 'systems', runnable: false, preview: false, color: 'text-purple-500 dark:text-purple-400', starter: 'fun main() {\n  val message = "Hello from Kotlin!"\n  println(message)\n}\n' },
+  swift: { label: 'Swift', ext: 'swift', category: 'systems', runnable: false, preview: false, color: 'text-orange-500 dark:text-orange-400', starter: 'import Foundation\n\nfunc greet(name: String) -> String {\n  return "Hello, \\(name)!"\n}\nprint(greet(name: "Swift"))\n' },
+  go: { label: 'Go', ext: 'go', category: 'systems', runnable: false, preview: false, color: 'text-cyan-500 dark:text-cyan-400', starter: 'package main\n\nimport "fmt"\n\nfunc main() {\n\tfmt.Println("Hello from Go!")\n}\n' },
+  rust: { label: 'Rust', ext: 'rs', category: 'systems', runnable: false, preview: false, color: 'text-orange-600 dark:text-orange-400', starter: 'fn main() {\n    let lang = "Rust";\n    println!("Hello from {}!", lang);\n}\n' },
+  ruby: { label: 'Ruby', ext: 'rb', category: 'scripting', runnable: false, preview: false, color: 'text-red-500 dark:text-red-400', starter: 'def greet(name)\n  "Hello, #{name}!"\nend\n\nputs greet("Ruby")\n' },
+  dart: { label: 'Dart', ext: 'dart', category: 'systems', runnable: false, preview: false, color: 'text-sky-500 dark:text-sky-400', starter: 'void main() {\n  print("Hello from Dart!");\n}\n' },
+  bash: { label: 'Bash / Shell', ext: 'sh', category: 'scripting', runnable: false, preview: false, color: 'text-lime-600 dark:text-lime-400', starter: '#!/usr/bin/env bash\necho "Hello from Bash"\n' },
+  powershell: { label: 'PowerShell', ext: 'ps1', category: 'scripting', runnable: false, preview: false, color: 'text-blue-500 dark:text-blue-400', starter: '$name = "CodeLab"\nWrite-Output "Hello from $name"\n' },
+  lua: { label: 'Lua', ext: 'lua', category: 'scripting', runnable: false, preview: false, color: 'text-indigo-500 dark:text-indigo-400', starter: 'local function greet(name)\n  print("Hello " .. name)\nend\n\ngreet("Lua")\n' },
+  r: { label: 'R', ext: 'r', category: 'data', runnable: false, preview: false, color: 'text-blue-600 dark:text-blue-400', starter: 'nums <- c(10, 20, 30, 40)\nprint(mean(nums))\n' },
+  perl: { label: 'Perl', ext: 'pl', category: 'scripting', runnable: false, preview: false, color: 'text-teal-500 dark:text-teal-400', starter: 'use strict;\nuse warnings;\nprint "Hello from Perl!\\n";\n' },
+  haskell: { label: 'Haskell', ext: 'hs', category: 'systems', runnable: false, preview: false, color: 'text-purple-500 dark:text-purple-400', starter: 'main :: IO ()\nmain = putStrLn "Hello from Haskell!"\n' },
+  scala: { label: 'Scala', ext: 'scala', category: 'systems', runnable: false, preview: false, color: 'text-red-500 dark:text-red-400', starter: 'object Main extends App {\n  println("Hello from Scala!")\n}\n' },
+  erlang: { label: 'Erlang / Elixir', ext: 'erl', category: 'systems', runnable: false, preview: false, color: 'text-fuchsia-500 dark:text-fuchsia-400', starter: '-module(main).\n-export([start/0]).\n\nstart() ->\n  io:format("Hello from Erlang!~n").\n' },
+  julia: { label: 'Julia', ext: 'jl', category: 'data', runnable: false, preview: false, color: 'text-emerald-500 dark:text-emerald-400', starter: 'function greet(name)\n    println("Hello from $name!")\nend\n\ngreet("Julia")\n' },
+  groovy: { label: 'Groovy', ext: 'groovy', category: 'scripting', runnable: false, preview: false, color: 'text-sky-600 dark:text-sky-400', starter: 'println "Hello from Groovy!"\n' },
+  clojure: { label: 'Clojure', ext: 'clj', category: 'systems', runnable: false, preview: false, color: 'text-green-500 dark:text-green-400', starter: '(defn greet [name]\n  (str "Hello, " name "!"))\n\n(println (greet "Clojure"))\n' },
+  asm: { label: 'Assembly (GAS)', ext: 'asm', category: 'systems', runnable: false, preview: false, color: 'text-slate-500 dark:text-slate-400', starter: '.global _start\n.text\n_start:\n    mov $60, %rax\n    xor %rdi, %rdi\n    syscall\n' },
+  pascal: { label: 'Pascal', ext: 'pas', category: 'systems', runnable: false, preview: false, color: 'text-amber-500 dark:text-amber-400', starter: 'program Hello;\nbegin\n  writeln(\'Hello from Pascal!\');\nend.\n' },
+  fortran: { label: 'Fortran', ext: 'f90', category: 'systems', runnable: false, preview: false, color: 'text-indigo-400', starter: 'program hello\n  print *, "Hello from Fortran!"\nend program hello\n' },
+  yaml: { label: 'YAML', ext: 'yaml', category: 'data', runnable: false, preview: false, color: 'text-rose-400', starter: 'name: codelab\nservices:\n  web:\n    port: 3000\n' },
+  toml: { label: 'TOML', ext: 'toml', category: 'data', runnable: false, preview: false, color: 'text-orange-400', starter: '[package]\nname = "codelab"\nversion = "0.1.0"\n' },
+  xml: { label: 'XML', ext: 'xml', category: 'data', runnable: false, preview: false, color: 'text-orange-500 dark:text-orange-400', starter: '<?xml version="1.0" encoding="UTF-8"?>\n<root>\n  <item>CodeLab</item>\n</root>\n' },
+  svg: { label: 'SVG', ext: 'svg', category: 'web', runnable: true, preview: true, color: 'text-amber-500 dark:text-amber-400', starter: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" width="200" height="120">\n  <rect width="200" height="120" rx="12" fill="#0f172a"/>\n  <circle cx="100" cy="60" r="32" fill="#0ea5e9"/>\n</svg>\n' },
+  markdown: { label: 'Markdown', ext: 'md', category: 'data', runnable: true, preview: true, color: 'text-slate-500 dark:text-slate-400', starter: '# عنوان المستند\n\nاكتب ملاحظاتك هنا باستخدام **Markdown**.\n' },
+  dockerfile: { label: 'Dockerfile', ext: 'Dockerfile', category: 'scripting', runnable: false, preview: false, color: 'text-sky-500 dark:text-sky-400', starter: 'FROM node:22-slim\nWORKDIR /app\nCOPY . .\nRUN npm install\nCMD ["npm", "start"]\n' },
+  nginx: { label: 'Nginx Config', ext: 'conf', category: 'scripting', runnable: false, preview: false, color: 'text-emerald-500 dark:text-emerald-400', starter: 'server {\n  listen 80;\n  server_name example.com;\n}\n' },
+  latex: { label: 'LaTeX', ext: 'tex', category: 'data', runnable: false, preview: false, color: 'text-teal-600 dark:text-teal-400', starter: '\\documentclass{article}\n\\begin{document}\nHello from LaTeX!\n\\end{document}\n' },
+  text: { label: 'Plain Text', ext: 'txt', category: 'data', runnable: false, preview: false, color: 'text-slate-500 dark:text-slate-400', starter: '' },
 };
 
 export const ALL_LANGUAGE_OPTIONS = Object.entries(LANG_META).map(([id, info]) => ({
@@ -342,9 +342,53 @@ def is_prime(n: int) -> bool:
     },
   },
   {
+    id: 'php-sql-json',
+    name: 'مشروع PHP و SQL و JSON',
+    description: 'تشغيل مباشر لاستعلامات SQL وسكربتات PHP والتحقق من JSON محلياً بدون إنترنت',
+    entryFile: 'query.sql',
+    files: {
+      'query.sql': `CREATE TABLE products (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  category TEXT,
+  price REAL
+);
+
+INSERT INTO products (id, name, category, price) VALUES
+  (1, 'Laptop Pro', 'Hardware', 1200),
+  (2, 'Mechanical Keyboard', 'Accessories', 140),
+  (3, 'USB-C Hub', 'Accessories', 45),
+  (4, '4K Monitor', 'Hardware', 480);
+
+SELECT id, name, category, price
+FROM products
+WHERE price >= 100
+ORDER BY price DESC;`,
+      'index.php': `<?php
+$project = "CodeLab Store";
+$items = [
+  ["name" => "Laptop Pro", "price" => 1200],
+  ["name" => "Keyboard", "price" => 140],
+];
+
+echo "=== " . $project . " ===\\n";
+foreach ($items as $item) {
+  echo "- " . $item["name"] . ": $" . $item["price"] . "\\n";
+}
+echo "الإجمالي: " . count($items) . " منتجات\\n";
+`,
+      'data.json': `{
+  "project": "CodeLab Store",
+  "version": "1.0.0",
+  "currency": "USD",
+  "features": ["SQL Engine", "PHP Runner", "JSON Validator"]
+}`,
+    },
+  },
+  {
     id: 'multi-lang-polyglot',
     name: 'مساحة عمل متعددة اللغات',
-    description: 'ملفات جاهزة بلغات Go وRust وSQL وC++ وJava وPHP في مشروع واحد',
+    description: 'ملفات جاهزة بلغات Go وRust وSQL وC++ وJava وPHP وJSON في مشروع واحد',
     entryFile: 'main.go',
     files: {
       'main.go': LANG_META.go.starter,
@@ -353,6 +397,7 @@ def is_prime(n: int) -> bool:
       'main.cpp': LANG_META.cpp.starter,
       'Main.java': LANG_META.java.starter,
       'index.php': LANG_META.php.starter,
+      'config.json': LANG_META.json.starter,
     },
   },
   {

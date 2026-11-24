@@ -1,9 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { X, FolderGit2, Keyboard, MessageCircle, Search, FileCode2, Download, Archive, FileJson } from 'lucide-react';
+import { X, FolderGit2, Keyboard, MessageCircle, Search, Download, Archive, FileJson } from 'lucide-react';
 import { ALL_LANGUAGE_OPTIONS, DEV, WORKSPACE_TEMPLATES } from '../lib/workspaces';
 import { sanitizeProjectName } from '../lib/storage';
+import LanguageIcon from './LanguageIcon';
 
 function ModalFrame({ title, onClose, maxWidth = 'max-w-xl', children }) {
   return (
@@ -106,29 +107,58 @@ export function ExportProjectModal({ open, onClose, projectName, onRenameProject
   );
 }
 
+const LANG_CATEGORIES = [
+  { id: 'all', label: 'الكل' },
+  { id: 'web', label: 'الويب وPHP' },
+  { id: 'data', label: 'SQL وJSON والبيانات' },
+  { id: 'systems', label: 'البرمجة والأنظمة' },
+  { id: 'scripting', label: 'السكربت والتكوين' },
+];
+
 export function LanguagesModal({ open, onClose, onCreateLanguageFile }) {
   const [search, setSearch] = useState('');
+  const [category, setCategory] = useState('all');
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return ALL_LANGUAGE_OPTIONS;
-    return ALL_LANGUAGE_OPTIONS.filter(
-      (l) => l.label.toLowerCase().includes(q) || l.ext.toLowerCase().includes(q) || l.id.toLowerCase().includes(q)
-    );
-  }, [search]);
+    return ALL_LANGUAGE_OPTIONS.filter((l) => {
+      if (category !== 'all' && l.category !== category) return false;
+      if (!q) return true;
+      return l.label.toLowerCase().includes(q) || l.ext.toLowerCase().includes(q) || l.id.toLowerCase().includes(q);
+    });
+  }, [search, category]);
 
   if (!open) return null;
 
   return (
-    <ModalFrame title="إنشاء ملف بلغة برمجة (38+ لغة مدعومة)" onClose={onClose} maxWidth="max-w-2xl">
-      <div className="relative mb-4">
-        <Search className="w-4 h-4 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
-        <input
-          autoFocus
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="ابحث عن لغة: Python, Rust, Go, Swift, SQL, Kotlin, PHP..."
-          className="w-full pr-9 pl-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 outline-none focus:border-sky-500"
-        />
+    <ModalFrame title={`إنشاء ملف بلغة برمجة (${ALL_LANGUAGE_OPTIONS.length} لغة مدعومة)`} onClose={onClose} maxWidth="max-w-2xl">
+      <div className="space-y-3 mb-4">
+        <div className="relative">
+          <Search className="w-4 h-4 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
+          <input
+            autoFocus
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="ابحث عن لغة: JSON, SQL, PHP, Python, Rust, Go, Swift, Kotlin..."
+            className="w-full pr-9 pl-3 py-2 text-sm rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 outline-none focus:border-sky-500"
+          />
+        </div>
+
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+          {LANG_CATEGORIES.map((cat) => (
+            <button
+              key={cat.id}
+              type="button"
+              onClick={() => setCategory(cat.id)}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap shrink-0 transition-colors ${
+                category === cat.id
+                  ? 'bg-sky-600 text-white'
+                  : 'bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800'
+              }`}
+            >
+              {cat.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -142,8 +172,8 @@ export function LanguagesModal({ open, onClose, onCreateLanguageFile }) {
             }}
             className="flex items-center justify-between gap-2 p-2.5 rounded-lg border border-slate-200 dark:border-slate-800 hover:border-sky-500 dark:hover:border-sky-500 bg-slate-50 dark:bg-slate-900/60 text-start transition-colors"
           >
-            <div className="flex items-center gap-2 min-w-0">
-              <FileCode2 className={`w-4 h-4 shrink-0 ${lang.color}`} />
+            <div className="flex items-center gap-2.5 min-w-0">
+              <LanguageIcon lang={lang.id} size={20} />
               <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate" dir="ltr">
                 {lang.label}
               </span>

@@ -13,7 +13,6 @@ import {
   ChevronRight,
   Folder,
   FolderOpen,
-  FileCode2,
   ImageIcon,
   Film,
   Music,
@@ -21,8 +20,9 @@ import {
   Search,
   X,
 } from 'lucide-react';
-import { detectLang, detectMediaKind, getLangMeta } from '../lib/workspaces';
+import { detectLang, detectMediaKind } from '../lib/workspaces';
 import { isMediaEntry } from '../lib/storage';
+import LanguageIcon from './LanguageIcon';
 
 function buildTree(paths) {
   const root = { folders: {}, files: [] };
@@ -88,6 +88,9 @@ export default function FileExplorer({
   onDeleteFile,
   onImportFiles,
   onExportWorkspace,
+  onClearAllFiles,
+  onOpenLocalFile,
+  onSaveLocalFile,
 }) {
   const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(null);
@@ -170,8 +173,7 @@ export default function FileExplorer({
     if (mediaKind === 'image') return <ImageIcon className="w-3.5 h-3.5 shrink-0 text-emerald-500 dark:text-emerald-400" />;
     if (mediaKind === 'video') return <Film className="w-3.5 h-3.5 shrink-0 text-purple-500 dark:text-purple-400" />;
     if (mediaKind === 'audio') return <Music className="w-3.5 h-3.5 shrink-0 text-pink-500 dark:text-pink-400" />;
-    const meta = getLangMeta(detectLang(path));
-    return <FileCode2 className={`w-3.5 h-3.5 shrink-0 ${meta.color}`} />;
+    return <LanguageIcon lang={detectLang(path)} size={15} />;
   };
 
   const renderNode = (node, prefix = '', depth = 0) => {
@@ -311,11 +313,11 @@ export default function FileExplorer({
         setDragOver(false);
         handleFileList(e.dataTransfer?.files);
       }}
-      className={`w-64 shrink-0 flex flex-col border-l border-slate-200 dark:border-slate-800 bg-slate-100/70 dark:bg-[#0f172a] select-none overflow-hidden transition-colors ${
+      className={`w-56 xl:w-64 shrink-0 flex flex-col border-l border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-[#0f172a] select-none overflow-hidden transition-colors ${
         dragOver ? 'ring-2 ring-inset ring-sky-500 bg-sky-500/10' : ''
       }`}
     >
-      <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-800 space-y-2">
+      <div className="px-3 py-2.5 border-b border-slate-200 dark:border-slate-800 space-y-2.5">
         <div className="flex items-center justify-between gap-2">
           {editingProject ? (
             <form
@@ -358,15 +360,15 @@ export default function FileExplorer({
             type="button"
             title="تسمية وتنزيل المشروع على جهازك"
             onClick={onExportWorkspace}
-            className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium bg-sky-600 hover:bg-sky-500 text-white shrink-0 transition-colors"
+            className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-sky-600 hover:bg-sky-500 text-white shrink-0 transition-colors"
           >
             <Download className="w-3 h-3" />
             <span>تنزيل</span>
           </button>
         </div>
 
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">ملفات المشروع</span>
+        <div className="flex items-center justify-between gap-1">
+          <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">الملفات</span>
           <div className="flex items-center gap-0.5">
             <button
               type="button"
@@ -375,7 +377,7 @@ export default function FileExplorer({
                 setCreating({ type: 'file', prefix: '' });
                 setDraftName('');
               }}
-              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
+              className="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
             >
               <FilePlus className="w-3.5 h-3.5" />
             </button>
@@ -383,7 +385,7 @@ export default function FileExplorer({
               type="button"
               title="اختيار لغة برمجة جديدة"
               onClick={onOpenLanguagePicker}
-              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
+              className="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
             >
               <Languages className="w-3.5 h-3.5" />
             </button>
@@ -394,7 +396,7 @@ export default function FileExplorer({
                 setCreating({ type: 'folder', prefix: '' });
                 setDraftName('');
               }}
-              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
+              className="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
             >
               <FolderPlus className="w-3.5 h-3.5" />
             </button>
@@ -402,17 +404,45 @@ export default function FileExplorer({
               type="button"
               title="رفع صور / فيديو / صوت"
               onClick={() => mediaUploadRef.current?.click()}
-              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-emerald-600 dark:text-emerald-400"
+              className="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 text-emerald-600 dark:text-emerald-400"
             >
               <ImageIcon className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
+              title="فتح ملف محلي (File System Access)"
+              onClick={onOpenLocalFile}
+              className="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 text-sky-600 dark:text-sky-400 font-medium text-xs flex items-center gap-1"
+            >
+              <span>فتح ملف</span>
+            </button>
+            <button
+              type="button"
+              title="حفظ الملف الحالي محلياً"
+              onClick={onSaveLocalFile}
+              className="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 text-emerald-600 dark:text-emerald-400 font-medium text-xs flex items-center gap-1"
+            >
+              <span>حفظ</span>
+            </button>
+            <button
+              type="button"
               title="رفع ملفات كود أو وسائط"
               onClick={() => uploadRef.current?.click()}
-              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
+              className="p-1.5 rounded-md hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
             >
               <Upload className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              title="مسح سريع لجميع الكود والملفات"
+              onClick={() => {
+                if (window.confirm('هل أنت متأكد من مسح جميع ملفات المشروع الحالية وبدء ملف فارغ؟')) {
+                  onClearAllFiles?.();
+                }
+              }}
+              className="p-1.5 rounded-md hover:bg-rose-500/15 text-rose-600 dark:text-rose-400"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
             </button>
           </div>
           <input
@@ -437,9 +467,7 @@ export default function FileExplorer({
             }}
           />
         </div>
-      </div>
 
-      <div className="p-2 border-b border-slate-200 dark:border-slate-800 space-y-2">
         <div className="relative flex items-center">
           <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 pointer-events-none" />
           <input
@@ -459,23 +487,14 @@ export default function FileExplorer({
             </button>
           )}
         </div>
-
-        <button
-          type="button"
-          onClick={() => mediaUploadRef.current?.click()}
-          className="w-full flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-md text-[11px] font-medium border border-dashed border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400 transition-colors"
-        >
-          <Upload className="w-3 h-3" />
-          <span>رفع صور أو فيديو أو صوت (أو اسحب هنا)</span>
-        </button>
       </div>
 
       {creating && (
-        <form onSubmit={submitCreate} className="p-2 border-b border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60">
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mb-1">
+        <form onSubmit={submitCreate} className="p-2.5 border-b border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/60">
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mb-1.5">
             {creating.type === 'folder' ? 'اسم المجلد الجديد:' : `اسم الملف${creating.prefix ? ` داخل ${creating.prefix}` : ''}:`}
           </div>
-          <div className="flex gap-1">
+          <div className="flex gap-1.5">
             <input
               autoFocus
               dir="ltr"
@@ -484,7 +503,7 @@ export default function FileExplorer({
               placeholder={creating.type === 'folder' ? 'src' : 'main.rs'}
               className="flex-1 min-w-0 px-2 py-1 text-xs font-mono rounded border border-sky-500 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 outline-none"
             />
-            <button type="submit" className="px-2 py-1 text-xs rounded bg-sky-600 text-white font-medium">
+            <button type="submit" className="px-2.5 py-1 text-xs rounded bg-sky-600 text-white font-medium">
               إنشاء
             </button>
             <button
@@ -498,7 +517,7 @@ export default function FileExplorer({
         </form>
       )}
 
-      <div className="flex-1 overflow-auto p-1.5 space-y-0.5">
+      <div className="flex-1 overflow-auto p-2 space-y-0.5">
         {visiblePaths.length ? (
           renderNode(tree)
         ) : (
@@ -507,7 +526,7 @@ export default function FileExplorer({
       </div>
 
       <div className="px-3 py-2 border-t border-slate-200 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between tabular-nums">
-        <span>إجمالي الملفات</span>
+        <span>إجمالي الملفات · اسحب للرفع</span>
         <span>{Object.keys(files).length}</span>
       </div>
     </aside>

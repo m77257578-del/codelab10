@@ -82,7 +82,7 @@ function getLangExtension(lang) {
     case 'php':
       return php();
     case 'sql':
-      return sql();
+      return sql({ upperCaseKeywords: true });
     case 'xml':
     case 'svg':
       return xml();
@@ -287,6 +287,7 @@ export default function CodeEditorPane({
           },
         },
       ]),
+      EditorView.scrollMargins.of(() => ({ top: 24, bottom: 32 })),
       EditorView.domEventHandlers({
         focus: () => {
           onFocusChange?.(true);
@@ -341,6 +342,7 @@ export default function CodeEditorPane({
           v.focus();
         },
         focus: () => viewRef.current?.focus(),
+        blur: () => viewRef.current?.contentDOM?.blur(),
         triggerAutocomplete: () => {
           const v = viewRef.current;
           if (!v) return;

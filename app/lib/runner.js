@@ -355,8 +355,497 @@ export function transpileTSOrJSX(code, lang) {
   return transform(code, { transforms }).code;
 }
 
+// Local JSON validator & formatter runner
+export function runJson(code) {
+  try {
+    const parsed = JSON.parse(code);
+    const kind = Array.isArray(parsed)
+      ? `Array (${parsed.length} items)`
+      : parsed !== null && typeof parsed === 'object'
+        ? `Object (${Object.keys(parsed).length} keys)`
+        : typeof parsed;
+    return { out: `[JSON Valid · ${kind}]\n${JSON.stringify(parsed, null, 2)}` };
+  } catch (e) {
+    return { err: `صيغة JSON غير صالحة: ${e.message}` };
+  }
+}
+
+// Lightweight local in-memory SQL engine (offline)
+function splitSqlArgs(str) {
+  const res = [];
+  let cur = '';
+  let q = '';
+  let depth = 0;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    if (q) {
+      cur += ch;
+      if (ch === q && str[i - 1] !== '\\') q = '';
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      q = ch;
+      cur += ch;
+      continue;
+    }
+    if (ch === '(') depth++;
+    else if (ch === ')') depth = Math.max(0, depth - 1);
+    else if (ch === ',' && depth === 0) {
+      res.push(cur.trim());
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur.trim()) res.push(cur.trim());
+  return res;
+}
+
+function parseSqlLiteral(raw) {
+  const t = String(raw || '').trim();
+  if (/^null$/i.test(t)) return null;
+  if (/^true$/i.test(t)) return true;
+  if (/^false$/i.test(t)) return false;
+  if ((t.startsWith("'") && t.endsWith("'")) || (t.startsWith('"') && t.endsWith('"'))) {
+    return t.slice(1, -1).replace(/\\'/g, "'").replace(/''/g, "'");
+  }
+  if (/^-?\d+(\.\d+)?$/.test(t)) return Number(t);
+  return t;
+}
+
+function evalSqlWhere(row, whereClause) {
+  if (!whereClause) return true;
+  const orParts = whereClause.split(/\s+OR\s+/i);
+  return orParts.some((orPart) => {
+    const andParts = orPart.split(/\s+AND\s+/i);
+    return andParts.every((cond) => {
+      const c = cond.trim().replace(/^\(+|\)+$/g, '').trim();
+      let m;
+      if ((m = c.match(/^(\w+)\s+IS\s+NOT\s+NULL$/i))) return row[m[1]] !== null && row[m[1]] !== undefined;
+      if ((m = c.match(/^(\w+)\s+IS\s+NULL$/i))) return row[m[1]] === null || row[m[1]] === undefined;
+      if ((m = c.match(/^(\w+)\s+IN\s*\(([^)]+)\)$/i))) {
+        const list = splitSqlArgs(m[2]).map(parseSqlLiteral);
+        return list.includes(row[m[1]]);
+      }
+      if ((m = c.match(/^(\w+)\s+LIKE\s+(.+)$/i))) {
+        const pat = String(parseSqlLiteral(m[2]) || '');
+        const regex = new RegExp('^' + pat.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*').replace(/_/g, '.') + '$', 'i');
+        return regex.test(String(row[m[1]] ?? ''));
+      }
+      if ((m = c.match(/^(\w+)\s*(=|!=|<>|>=|<=|>|<)\s*(.+)$/))) {
+        const lhs = row[m[1]];
+        const op = m[2];
+        const rhs = parseSqlLiteral(m[3]);
+        if (op === '=') return lhs == rhs;
+        if (op === '!=' || op === '<>') return lhs != rhs;
+        if (op === '>') return Number(lhs) > Number(rhs);
+        if (op === '<') return Number(lhs) < Number(rhs);
+        if (op === '>=') return Number(lhs) >= Number(rhs);
+        if (op === '<=') return Number(lhs) <= Number(rhs);
+      }
+      return true;
+    });
+  });
+}
+
+function formatSqlTable(columns, rows) {
+  if (!rows.length) return `(0 rows)`;
+  const cols = columns.length ? columns : Object.keys(rows[0]);
+  const widths = cols.map((c) =>
+    Math.max(c.length, ...rows.map((r) => String(r[c] ?? 'NULL').length))
+  );
+  const sep = '+' + widths.map((w) => '-'.repeat(w + 2)).join('+') + '+';
+  const fmtRow = (vals) =>
+    '| ' + vals.map((v, i) => String(v ?? 'NULL').padEnd(widths[i])).join(' | ') + ' |';
+  return [sep, fmtRow(cols), sep, ...rows.map((r) => fmtRow(cols.map((c) => r[c]))), sep, `(${rows.length} rows)`].join('\n');
+}
+
+export function runSql(code, files = {}) {
+  const tables = {};
+  // Seed JSON array files in workspace as virtual tables
+  for (const [path, entry] of Object.entries(files)) {
+    if (typeof entry === 'string' && /\.json$/i.test(path)) {
+      try {
+        const data = JSON.parse(entry);
+        if (Array.isArray(data) && data.length && typeof data[0] === 'object') {
+          const tName = path.split('/').pop().replace(/\.json$/i, '').replace(/[^\w]/g, '_');
+          tables[tName] = { columns: Object.keys(data[0]), rows: data.map((r) => ({ ...r })) };
+        }
+      } catch {}
+    }
+  }
+
+  // Fallback sample users table if user immediately runs SELECT * FROM users
+  const ensureFallbackUsers = () => {
+    if (!tables.users) {
+      tables.users = {
+        columns: ['id', 'username', 'active', 'created_at'],
+        rows: [
+          { id: 1, username: 'ahmed', active: 1, created_at: '2026-01-10' },
+          { id: 2, username: 'sara', active: 1, created_at: '2026-02-14' },
+          { id: 3, username: 'omar', active: 0, created_at: '2026-03-01' },
+        ],
+      };
+    }
+  };
+
+  // Strip SQL comments outside quotes and split by ;
+  let cleaned = '';
+  let q = '';
+  for (let i = 0; i < code.length; i++) {
+    const ch = code[i];
+    if (q) {
+      cleaned += ch;
+      if (ch === q && code[i - 1] !== '\\') q = '';
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      q = ch;
+      cleaned += ch;
+      continue;
+    }
+    if (ch === '-' && code[i + 1] === '-') {
+      while (i < code.length && code[i] !== '\n') i++;
+      cleaned += '\n';
+      continue;
+    }
+    if (ch === '/' && code[i + 1] === '*') {
+      i += 2;
+      while (i < code.length && !(code[i] === '*' && code[i + 1] === '/')) i++;
+      i += 1;
+      continue;
+    }
+    cleaned += ch;
+  }
+
+  const stmts = [];
+  let cur = '';
+  q = '';
+  for (let i = 0; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+    if (q) {
+      cur += ch;
+      if (ch === q && cleaned[i - 1] !== '\\') q = '';
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      q = ch;
+      cur += ch;
+      continue;
+    }
+    if (ch === ';') {
+      if (cur.trim()) stmts.push(cur.trim());
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur.trim()) stmts.push(cur.trim());
+
+  const out = [];
+  try {
+    for (const rawStmt of stmts) {
+      const stmt = rawStmt.replace(/\s+/g, ' ').trim();
+      let m;
+
+      if (/^SHOW\s+TABLES$/i.test(stmt)) {
+        const names = Object.keys(tables);
+        out.push(formatSqlTable(['table_name'], names.map((n) => ({ table_name: n }))));
+        continue;
+      }
+
+      if ((m = stmt.match(/^DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?[`"']?(\w+)[`"']?$/i))) {
+        delete tables[m[1]];
+        out.push(`Table '${m[1]}' dropped.`);
+        continue;
+      }
+
+      if ((m = stmt.match(/^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"']?(\w+)[`"']?\s*\((.+)\)$/i))) {
+        const tName = m[1];
+        const colDefs = splitSqlArgs(m[2]);
+        const columns = colDefs
+          .filter((d) => !/^(PRIMARY\s+KEY|FOREIGN\s+KEY|UNIQUE|CHECK|CONSTRAINT)\b/i.test(d))
+          .map((d) => d.trim().split(/\s+/)[0].replace(/[`"']/g, ''));
+        tables[tName] = { columns, rows: [] };
+        out.push(`Table '${tName}' created (${columns.length} columns).`);
+        continue;
+      }
+
+      if ((m = stmt.match(/^INSERT\s+INTO\s+[`"']?(\w+)[`"']?\s*(?:\(([^)]+)\))?\s*VALUES\s*(.+)$/i))) {
+        const tName = m[1];
+        const tbl = tables[tName];
+        if (!tbl) return { err: `SQL Error: Table '${tName}' does not exist.` };
+        const cols = m[2] ? splitSqlArgs(m[2]).map((c) => c.replace(/[`"']/g, '')) : tbl.columns;
+        const tuples = [];
+        let depth = 0;
+        let start = -1;
+        let tq = '';
+        const valsStr = m[3];
+        for (let i = 0; i < valsStr.length; i++) {
+          const ch = valsStr[i];
+          if (tq) {
+            if (ch === tq && valsStr[i - 1] !== '\\') tq = '';
+            continue;
+          }
+          if (ch === "'" || ch === '"') tq = ch;
+          else if (ch === '(') {
+            if (depth === 0) start = i + 1;
+            depth++;
+          } else if (ch === ')') {
+            depth--;
+            if (depth === 0 && start >= 0) {
+              tuples.push(valsStr.slice(start, i));
+              start = -1;
+            }
+          }
+        }
+        for (const tuple of tuples) {
+          const vals = splitSqlArgs(tuple).map(parseSqlLiteral);
+          const row = {};
+          cols.forEach((c, idx) => {
+            row[c] = vals[idx] !== undefined ? vals[idx] : null;
+          });
+          tbl.rows.push(row);
+        }
+        out.push(`Inserted ${tuples.length} row(s) into '${tName}'.`);
+        continue;
+      }
+
+      if ((m = stmt.match(/^UPDATE\s+[`"']?(\w+)[`"']?\s+SET\s+(.+?)(?:\s+WHERE\s+(.+))?$/i))) {
+        const tName = m[1];
+        if (tName === 'users') ensureFallbackUsers();
+        const tbl = tables[tName];
+        if (!tbl) return { err: `SQL Error: Table '${tName}' does not exist.` };
+        const sets = splitSqlArgs(m[2]).map((s) => {
+          const [col, ...rest] = s.split('=');
+          return [col.trim().replace(/[`"']/g, ''), parseSqlLiteral(rest.join('='))];
+        });
+        let updated = 0;
+        for (const r of tbl.rows) {
+          if (evalSqlWhere(r, m[3])) {
+            for (const [c, v] of sets) r[c] = v;
+            updated++;
+          }
+        }
+        out.push(`Updated ${updated} row(s) in '${tName}'.`);
+        continue;
+      }
+
+      if ((m = stmt.match(/^DELETE\s+FROM\s+[`"']?(\w+)[`"']?(?:\s+WHERE\s+(.+))?$/i))) {
+        const tName = m[1];
+        if (tName === 'users') ensureFallbackUsers();
+        const tbl = tables[tName];
+        if (!tbl) return { err: `SQL Error: Table '${tName}' does not exist.` };
+        const before = tbl.rows.length;
+        tbl.rows = tbl.rows.filter((r) => !evalSqlWhere(r, m[2]));
+        out.push(`Deleted ${before - tbl.rows.length} row(s) from '${tName}'.`);
+        continue;
+      }
+
+      if ((m = stmt.match(/^SELECT\s+(DISTINCT\s+)?(.+?)\s+FROM\s+[`"']?(\w+)[`"']?(?:\s+WHERE\s+(.+?))?(?:\s+ORDER\s+BY\s+(.+?))?(?:\s+LIMIT\s+(\d+))?$/i))) {
+        const distinct = !!m[1];
+        const selectPart = m[2].trim();
+        const tName = m[3];
+        if (tName === 'users') ensureFallbackUsers();
+        const tbl = tables[tName];
+        if (!tbl) return { err: `SQL Error: Table '${tName}' does not exist.` };
+
+        let rows = tbl.rows.filter((r) => evalSqlWhere(r, m[4]));
+
+        if (m[5]) {
+          const [ordCol, ordDir] = m[5].trim().split(/\s+/);
+          const desc = /^DESC$/i.test(ordDir || '');
+          rows = [...rows].sort((a, b) => {
+            const va = a[ordCol];
+            const vb = b[ordCol];
+            if (va === vb) return 0;
+            if (va == null) return 1;
+            if (vb == null) return -1;
+            const cmp = typeof va === 'number' && typeof vb === 'number' ? va - vb : String(va).localeCompare(String(vb));
+            return desc ? -cmp : cmp;
+          });
+        }
+
+        const selFields = splitSqlArgs(selectPart);
+        const hasAgg = selFields.some((f) => /^(COUNT|SUM|AVG|MIN|MAX)\s*\(/i.test(f));
+
+        let resultCols = [];
+        let resultRows = [];
+
+        if (hasAgg) {
+          const aggRow = {};
+          for (const f of selFields) {
+            const am = f.match(/^(COUNT|SUM|AVG|MIN|MAX)\s*\(\s*(\*|\w+)\s*\)(?:\s+AS\s+(\w+))?$/i);
+            if (!am) continue;
+            const fn = am[1].toUpperCase();
+            const col = am[2];
+            const alias = am[3] || `${fn}(${col})`;
+            resultCols.push(alias);
+            if (fn === 'COUNT') {
+              aggRow[alias] = col === '*' ? rows.length : rows.filter((r) => r[col] !== null && r[col] !== undefined).length;
+            } else {
+              const nums = rows.map((r) => Number(r[col])).filter((n) => !Number.isNaN(n));
+              if (fn === 'SUM') aggRow[alias] = nums.reduce((a, b) => a + b, 0);
+              else if (fn === 'AVG') aggRow[alias] = nums.length ? Number((nums.reduce((a, b) => a + b, 0) / nums.length).toFixed(2)) : null;
+              else if (fn === 'MIN') aggRow[alias] = nums.length ? Math.min(...nums) : null;
+              else if (fn === 'MAX') aggRow[alias] = nums.length ? Math.max(...nums) : null;
+            }
+          }
+          resultRows = [aggRow];
+        } else {
+          if (selectPart === '*') {
+            resultCols = tbl.columns;
+            resultRows = rows.map((r) => ({ ...r }));
+          } else {
+            const mappings = selFields.map((f) => {
+              const asMatch = f.match(/^(\w+)\s+AS\s+(\w+)$/i);
+              return asMatch ? [asMatch[1], asMatch[2]] : [f.replace(/[`"']/g, ''), f.replace(/[`"']/g, '')];
+            });
+            resultCols = mappings.map(([, alias]) => alias);
+            resultRows = rows.map((r) => {
+              const obj = {};
+              for (const [src, alias] of mappings) obj[alias] = r[src];
+              return obj;
+            });
+          }
+        }
+
+        if (distinct) {
+          const seen = new Set();
+          resultRows = resultRows.filter((r) => {
+            const key = JSON.stringify(r);
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+        }
+
+        if (m[6]) {
+          resultRows = resultRows.slice(0, Number(m[6]));
+        }
+
+        out.push(formatSqlTable(resultCols, resultRows));
+        continue;
+      }
+
+      return { err: `SQL Syntax Error: Unsupported or invalid statement "${stmt}"` };
+    }
+    return { out: out.join('\n\n') };
+  } catch (e) {
+    return { err: `SQL Error: ${e.message}` };
+  }
+}
+
+// Built-in client-side PHP interpreter (offline WebWorker sandbox)
+const PHPPRE =
+  'let buf="";const __s=(x)=>x===true?"1":x===false?"":x==null?"":Array.isArray(x)||typeof x==="object"?JSON.stringify(x):String(x);const __echo=(...a)=>{buf+=a.map(__s).join("")};const print_r=(x)=>{buf+=JSON.stringify(x,null,2)+"\\n"};const var_dump=(x)=>{buf+=typeof x+"("+__s(x)+")\\n"};const count=(x)=>Array.isArray(x)?x.length:x&&typeof x==="object"?Object.keys(x).length:0;const strlen=(s)=>String(s).length;const strtoupper=(s)=>String(s).toUpperCase();const strtolower=(s)=>String(s).toLowerCase();const trim=(s)=>String(s).trim();const implode=(sep,arr)=>Array.isArray(arr)?arr.join(sep):Object.values(arr||{}).join(sep);const explode=(sep,s)=>String(s).split(sep);const array_push=(a,...v)=>{a.push(...v);return a.length};const array_map=(fn,a)=>a.map(fn);const array_filter=(a,fn)=>a.filter(fn||Boolean);const array_keys=(a)=>Object.keys(a||{});const array_values=(a)=>Object.values(a||{});const in_array=(v,a)=>Array.isArray(a)?a.includes(v):Object.values(a||{}).includes(v);const json_encode=(v)=>JSON.stringify(v);const json_decode=(s,assoc)=>JSON.parse(s);const range=(a,b)=>{const o=[];for(let i=a;i<=b;i++)o.push(i);return o};const round=Math.round;const abs=Math.abs;const max=Math.max;const min=Math.min;const is_array=(x)=>Array.isArray(x)||(x!==null&&typeof x==="object");const is_string=(x)=>typeof x==="string";const is_numeric=(x)=>!isNaN(Number(x));const isset=(...a)=>a.every((x)=>x!==undefined&&x!==null);const empty=(x)=>!x||(Array.isArray(x)&&x.length===0);const __entries=(x)=>Array.isArray(x)?x.map((v,i)=>[i,v]):Object.entries(x||{});const __vals=(x)=>Array.isArray(x)?x:Object.values(x||{});';
+
+function phpToJS(code) {
+  let src = code
+    .replace(/<\?php\s*/gi, '')
+    .replace(/<\?=\s*/g, 'echo ')
+    .replace(/\?>/g, '');
+
+  // Extract string literals & comments first so transforms don't corrupt text
+  const tokens = [];
+  let out = '';
+  let i = 0;
+  while (i < src.length) {
+    const ch = src[i];
+    if (ch === '/' && src[i + 1] === '/') {
+      while (i < src.length && src[i] !== '\n') i++;
+      continue;
+    }
+    if (ch === '#') {
+      while (i < src.length && src[i] !== '\n') i++;
+      continue;
+    }
+    if (ch === '/' && src[i + 1] === '*') {
+      i += 2;
+      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) i++;
+      i += 2;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      const q = ch;
+      let s = q;
+      i++;
+      while (i < src.length) {
+        const c = src[i];
+        s += c;
+        if (c === '\\' && i + 1 < src.length) {
+          i++;
+          s += src[i];
+        } else if (c === q) {
+          i++;
+          break;
+        }
+        i++;
+      }
+      if (q === '"') {
+        const inner = s
+          .slice(1, -1)
+          .replace(/`/g, '\\`')
+          .replace(/\{\$(\w+(?:\[[^\]]+\])?)\}|(?<!\\)\$(\w+)/g, (_, braced, simple) => '${$' + (braced || simple) + '}');
+        tokens.push('`' + inner + '`');
+      } else {
+        tokens.push(s);
+      }
+      out += `\u0001${tokens.length - 1}\u0002`;
+      continue;
+    }
+    out += ch;
+    i++;
+  }
+
+  // Convert PHP array(...) and associative [...] syntax
+  out = out.replace(/\barray\s*\(/g, '[').replace(/\belseif\b/g, 'else if');
+
+  // Convert [k => v, ...] to {k: v, ...}
+  out = out.replace(/\[([^\[\]]*=>[^\[\]]*)\]/g, (_, body) => {
+    return '{' + body.replace(/=>/g, ':') + '}';
+  });
+  // Second pass for nested associative arrays
+  out = out.replace(/\[([^\[\]]*=>[^\[\]]*)\]/g, (_, body) => {
+    return '{' + body.replace(/=>/g, ':') + '}';
+  });
+
+  // Convert foreach ($arr as $k => $v) and foreach ($arr as $v)
+  out = out
+    .replace(/foreach\s*\(\s*([^)]+?)\s+as\s+(\$\w+)\s*=>\s*(\$\w+)\s*\)/g, 'for (let [$2, $3] of __entries($1))')
+    .replace(/foreach\s*\(\s*([^)]+?)\s+as\s+(\$\w+)\s*\)/g, 'for (let $2 of __vals($1))');
+
+  // Convert .= and string concatenation . outside decimal numbers
+  out = out
+    .replace(/\.=/g, '+=')
+    .replace(/->/g, '.')
+    .replace(/([^\d\s])\s*\.\s*([^\d\s])/g, '$1 + $2')
+    .replace(/(\))\s*\.\s*/g, '$1 + ')
+    .replace(/\s*\.\s*(\()/g, ' + $1');
+
+  // Convert echo / print statements
+  out = out
+    .replace(/\becho\s+([^;]+);/g, '__echo($1);')
+    .replace(/\bprint\s+([^;]+);/g, '__echo($1);');
+
+  // Restore string literals
+  return out.replace(/\u0001(\d+)\u0002/g, (_, idx) => tokens[Number(idx)]);
+}
+
+export async function runPhp(code) {
+  try {
+    const js = phpToJS(code);
+    return await runWorker(js, 3000, PHPPRE);
+  } catch (e) {
+    return { err: `PHP Error: ${e.message}` };
+  }
+}
+
 export async function runCode(lang, code, files = {}) {
   if (lang === 'python') return runPy(code, files);
+  if (lang === 'json') return runJson(code);
+  if (lang === 'sql') return runSql(code, files);
+  if (lang === 'php') return runPhp(code);
   if (lang === 'ts' || lang === 'tsx' || lang === 'jsx') {
     try {
       const js = transpileTSOrJSX(code, lang);

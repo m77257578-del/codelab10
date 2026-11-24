@@ -43,6 +43,32 @@ export function diagnose(code, lang) {
     return d;
   }
 
+  if (lang === 'sql') {
+    let inSingle = false;
+    let parens = 0;
+    const lines = code.split('\n');
+    lines.forEach((ln, i) => {
+      for (let idx = 0; idx < ln.length; idx++) {
+        const ch = ln[idx];
+        if (ch === '-' && ln[idx + 1] === '-' && !inSingle) break;
+        if (ch === "'" && ln[idx - 1] !== '\\') inSingle = !inSingle;
+        else if (!inSingle) {
+          if (ch === '(') parens++;
+          else if (ch === ')') {
+            parens--;
+            if (parens < 0) {
+              add(i + 1, "قوس ')' لا يطابق قوس فتح", 'راجع الأقواس في الاستعلام');
+              parens = 0;
+            }
+          }
+        }
+      }
+    });
+    if (inSingle) add(lines.length, 'نص SQL مفتوح ولم يُغلق بعلامة تنصيص مفردة', "أغلق النص بـ '");
+    if (parens > 0) add(lines.length, 'يوجد قوس ( مفتوح ولم يُغلق في SQL', 'أضف ) لإغلاق القوس');
+    return d;
+  }
+
   const BRACE_LANGS = new Set(['js', 'jsx', 'ts', 'tsx', 'css', 'scss', 'python', 'c', 'cpp', 'java', 'csharp', 'kotlin', 'swift', 'go', 'rust', 'php', 'dart', 'scala']);
   if (!BRACE_LANGS.has(lang)) return d;
 
@@ -183,7 +209,23 @@ export function formatCode(code, lang, tabSize = 2) {
       .replace(/\n{3,}/g, '\n\n')
       .trim();
   }
-  if (lang === 'html') {
+  if (lang === 'sql') {
+    const KEYWORDS = /\b(select|distinct|from|where|and|or|not|in|like|is|null|insert|into|values|update|set|delete|create|table|if|exists|drop|alter|add|primary|key|foreign|references|inner|left|right|join|on|group|by|having|order|asc|desc|limit|offset|as|count|sum|avg|min|max|show|tables)\b/gi;
+    return code
+      .replace(/\r/g, '')
+      .split('\n')
+      .map((line) =>
+        line
+          .replace(/\t/g, indentUnit)
+          .replace(/\s+$/, '')
+          .replace(/'[^']*'|([^']+)/g, (m, nonStr) =>
+            nonStr ? nonStr.replace(KEYWORDS, (kw) => kw.toUpperCase()) : m
+          )
+      )
+      .join('\n')
+      .trimEnd();
+  }
+  if (['html', 'xml', 'svg'].includes(lang)) {
     const voidTags = new Set('area base br col embed hr img input link meta param source track wbr !doctype'.split(' '));
     const tokens = code.replace(/\r/g, '').replace(/>\s+</g, '>\n<').split('\n');
     let depth = 0;
@@ -207,7 +249,7 @@ export function formatCode(code, lang, tabSize = 2) {
       })
       .join('\n');
   }
-  if (lang === 'js' || lang === 'cpp' || lang === 'java') {
+  if (['js', 'jsx', 'ts', 'tsx', 'php', 'c', 'cpp', 'csharp', 'java', 'kotlin', 'swift', 'go', 'rust', 'dart', 'scala'].includes(lang)) {
     let depth = 0;
     return code
       .replace(/\r/g, '')
