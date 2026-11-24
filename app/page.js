@@ -41,6 +41,7 @@ import LanguageIcon from './components/LanguageIcon';
 import MediaViewerPane from './components/MediaViewerPane';
 import MobileCodeBar from './components/MobileCodeBar';
 import CommandPalette from './components/CommandPalette';
+import QuickOpenModal from './components/QuickOpenModal';
 import IntegratedTerminal from './components/IntegratedTerminal';
 import {
   DeveloperModal,
@@ -48,6 +49,7 @@ import {
   LanguagesModal,
   ShortcutsModal,
   TemplatesModal,
+  CodeReviewModal,
 } from './components/IdeModals';
 import { WORKSPACE_TEMPLATES, detectLang, detectMediaKind, getLangMeta } from './lib/workspaces';
 import { arJs, diagnose, formatCode } from './lib/diagnostics';
@@ -108,10 +110,12 @@ export default function CodeLabIDE() {
   const [notice, setNotice] = useState(null);
 
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [quickOpenOpen, setQuickOpenOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [languagesOpen, setLanguagesOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const editorApiRef = useRef(null);
@@ -477,6 +481,9 @@ export default function CodeLabIDE() {
       } else if (mod && e.shiftKey && e.key.toLowerCase() === 'f') {
         e.preventDefault();
         setFocusMode((v) => !v);
+      } else if (mod && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        setQuickOpenOpen((v) => !v);
       } else if (mod && e.key.toLowerCase() === 's') {
         e.preventDefault();
         showNotice('تم حفظ المشروع محلياً على جهازك (جاهز بدون إنترنت)');
@@ -1008,9 +1015,11 @@ export default function CodeLabIDE() {
         shortcut: '',
         action: () => setPrefs((p) => ({ ...p, theme: p.theme === 'dark' ? 'light' : 'dark' })),
       },
+      { id: 'quick-open', label: 'فتح ملف سريع (Quick Open / Go to File)', shortcut: 'Ctrl+P', action: () => setQuickOpenOpen(true) },
       { id: 'shortcuts', label: 'عرض اختصارات لوحة المفاتيح', shortcut: '', action: () => setShortcutsOpen(true) },
+      { id: 'review', label: 'تقرير تقييم وفحص جودة الكود (Code Review)', shortcut: '', action: () => setReviewOpen(true) },
     ],
-    [doRun, focusMode, handleFormat, prefs.showExplorer, prefs.showDock, prefs.showPreview, prefs.showMobileBar, prefs.wordWrap, prefs.theme, toggleExplorer, toggleDock, togglePreview]
+    [doRun, focusMode, handleFormat, prefs.showExplorer, prefs.showDock, prefs.showPreview, prefs.showMobileBar, prefs.wordWrap, prefs.theme, toggleExplorer, toggleDock, togglePreview, setReviewOpen, setQuickOpenOpen]
   );
 
   const renderTabIcon = (path) => {
@@ -1870,15 +1879,15 @@ export default function CodeLabIDE() {
             <span className="hidden sm:inline text-slate-300 dark:text-slate-700">·</span>
             <button
               type="button"
+              title="عرض تقرير فحص وتقييم الكود (Code Review)"
               onClick={() => {
-                setDockTab('problems');
-                setPrefs((p) => ({ ...p, showDock: true }));
+                setReviewOpen(true);
               }}
               className={`hover:text-slate-900 dark:hover:text-slate-100 ${
-                problems.length > 0 ? 'text-rose-600 dark:text-rose-400 font-semibold' : ''
+                problems.length > 0 ? 'text-amber-500 font-semibold' : ''
               }`}
             >
-              Problems: {problems.length}
+              Code Review: {problems.length} مشكلة
             </button>
           </div>
         </footer>
@@ -1922,6 +1931,8 @@ export default function CodeLabIDE() {
         onLoadTemplate={handleLoadTemplate}
       />
       <ShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+      <CodeReviewModal open={reviewOpen} onClose={() => setReviewOpen(false)} files={files} onSelectFile={handleSelectFile} />
+      <QuickOpenModal open={quickOpenOpen} onClose={() => setQuickOpenOpen(false)} files={files} onSelectFile={handleSelectFile} />
     </div>
   );
 }

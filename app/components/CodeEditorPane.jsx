@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { X } from 'lucide-react';
+import { getMobileBarConfig } from '../lib/completions';
 import CodeMirror from '@uiw/react-codemirror';
 import { EditorState } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
@@ -232,6 +234,8 @@ export default function CodeEditorPane({
   editorRefOut,
   onRunShortcut,
 }) {
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const config = useMemo(() => getMobileBarConfig(lang), [lang]);
   const viewRef = useRef(null);
   const filesRef = useRef(files);
   filesRef.current = files;
@@ -294,6 +298,9 @@ export default function CodeEditorPane({
         },
         blur: () => {
           onFocusChange?.(false);
+        },
+        dblclick: () => {
+          setShowShortcuts((v) => !v);
         },
       }),
       EditorView.updateListener.of((update) => {
@@ -417,45 +424,93 @@ export default function CodeEditorPane({
   }, [editorRefOut]);
 
   return (
-    <div className="h-full w-full overflow-hidden bg-white dark:bg-[#0b1120]" dir="ltr">
-      <CodeMirror
-        value={typeof value === 'string' ? value : ''}
-        height="100%"
-        className="h-full"
-        theme={theme === 'dark' ? darkEditorTheme : lightEditorTheme}
-        extensions={extensions}
-        onChange={onChange}
-        onCreateEditor={(view) => {
-          viewRef.current = view;
-        }}
-        basicSetup={{
-          lineNumbers: true,
-          highlightActiveLineGutter: true,
-          highlightSpecialChars: true,
-          history: true,
-          foldGutter: true,
-          drawSelection: true,
-          dropCursor: true,
-          allowMultipleSelections: true,
-          indentOnInput: true,
-          syntaxHighlighting: false,
-          bracketMatching: true,
-          closeBrackets: true,
-          autocompletion: false,
-          rectangularSelection: true,
-          crosshairCursor: true,
-          highlightActiveLine: true,
-          highlightSelectionMatches: true,
-          closeBracketsKeymap: true,
-          defaultKeymap: true,
-          searchKeymap: true,
-          historyKeymap: true,
-          foldKeymap: true,
-          completionKeymap: true,
-          lintKeymap: true,
-          tabSize,
-        }}
-      />
+    <div
+      className="h-full w-full overflow-hidden bg-white dark:bg-[#0b1120] flex flex-col"
+      dir="ltr"
+      onDoubleClick={() => setShowShortcuts((v) => !v)}
+    >
+      {showShortcuts && (
+        <div className="shrink-0 bg-slate-100 dark:bg-[#0f172a] border-b border-slate-200 dark:border-slate-800 p-2 flex items-center justify-between gap-2 z-10 select-none">
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+            <span className="text-[11px] font-semibold text-sky-600 dark:text-sky-400 px-1 whitespace-nowrap">
+              اختصارات {lang.toUpperCase()}:
+            </span>
+            {config.symbols.map((sym) => (
+              <button
+                key={sym}
+                type="button"
+                onClick={() => {
+                  editorRefOut?.current?.insertSymbol?.(sym);
+                }}
+                className="h-7 min-w-[28px] px-1.5 rounded bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 font-mono text-xs font-semibold shrink-0 hover:bg-sky-600 hover:text-white transition-colors"
+              >
+                {sym}
+              </button>
+            ))}
+            {config.quickItems.slice(0, 10).map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                title={item.detail}
+                onClick={() => {
+                  editorRefOut?.current?.insertSnippet?.(item.tpl);
+                }}
+                className="h-7 px-2 rounded font-mono text-[11px] font-medium bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sky-700 dark:text-sky-300 hover:bg-sky-600 hover:text-white whitespace-nowrap shrink-0 transition-colors"
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowShortcuts(false)}
+            title="إخفاء الاختصارات"
+            className="p-1 rounded text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800 shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+      <div className="flex-1 min-h-0">
+        <CodeMirror
+          value={typeof value === 'string' ? value : ''}
+          height="100%"
+          className="h-full"
+          theme={theme === 'dark' ? darkEditorTheme : lightEditorTheme}
+          extensions={extensions}
+          onChange={onChange}
+          onCreateEditor={(view) => {
+            viewRef.current = view;
+          }}
+          basicSetup={{
+            lineNumbers: true,
+            highlightActiveLineGutter: true,
+            highlightSpecialChars: true,
+            history: true,
+            foldGutter: true,
+            drawSelection: true,
+            dropCursor: true,
+            allowMultipleSelections: true,
+            indentOnInput: true,
+            syntaxHighlighting: false,
+            bracketMatching: true,
+            closeBrackets: true,
+            autocompletion: false,
+            rectangularSelection: true,
+            crosshairCursor: true,
+            highlightActiveLine: true,
+            highlightSelectionMatches: true,
+            closeBracketsKeymap: true,
+            defaultKeymap: true,
+            searchKeymap: true,
+            historyKeymap: true,
+            foldKeymap: true,
+            completionKeymap: true,
+            lintKeymap: true,
+            tabSize,
+          }}
+        />
+      </div>
     </div>
   );
 }

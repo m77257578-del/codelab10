@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
+import JSZip from 'jszip';
 import {
   FilePlus,
   FolderPlus,
@@ -121,6 +122,37 @@ export default function FileExplorer({
 
     for (const f of list) {
       try {
+        if (f.name.endsWith('.zip') || f.type === 'application/zip' || f.type === 'application/x-zip-compressed') {
+          const arrayBuffer = await f.arrayBuffer();
+          const zip = await JSZip.loadAsync(arrayBuffer);
+          const zipFolderName = f.name.replace(/\.zip$/i, '');
+          importedProjectName = zipFolderName;
+
+          for (const [relativePath, zipEntry] of Object.entries(zip.files)) {
+            if (zipEntry.dir) continue;
+            const cleanPath = relativePath.replace(/^__MACOSX\//, '').replace(/^\.\//, '');
+            if (!cleanPath || cleanPath.includes('..')) continue;
+
+            const isMedia = /\.(png|jpg|jpeg|gif|webp|bmp|ico|mp4|webm|mp3|wav|ogg|aac|flac)$/i.test(cleanPath);
+            if (isMedia) {
+              const base64 = await zipEntry.async('base64');
+              const ext = cleanPath.split('.').pop()?.toLowerCase() || 'png';
+              const mime = ['mp4', 'webm'].includes(ext) ? `video/${ext}` : ['mp3', 'wav', 'ogg'].includes(ext) ? `audio/${ext}` : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+              loaded[cleanPath] = {
+                __media: true,
+                mime,
+                size: zipEntry._data?.uncompressedSize || 0,
+                name: cleanPath.split('/').pop(),
+                dataUrl: `data:${mime};base64,${base64}`,
+              };
+            } else {
+              const text = await zipEntry.async('text');
+              loaded[cleanPath] = text;
+            }
+          }
+          continue;
+        }
+
         const content = await readUploadedFile(f);
         if (typeof content === 'string' && /\.json$/i.test(f.name)) {
           try {
@@ -449,6 +481,7 @@ export default function FileExplorer({
             ref={uploadRef}
             type="file"
             multiple
+            accept=".zip,.json,.txt,.js,.ts,.jsx,.tsx,.html,.css,.py,.sql,.php,.md,image/*,video/*,audio/*"
             className="hidden"
             onChange={(e) => {
               handleFileList(e.target.files);
