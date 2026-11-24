@@ -485,14 +485,19 @@ export default function CodeLabIDE() {
     async (silent = false) => {
       if (!activeFile) return;
       const hasHtmlWorkspace = Object.keys(files).some((p) => /\.(html|htm)$/i.test(p));
+      const usesDomOrUi =
+        activeLang === 'jsx' ||
+        activeLang === 'tsx' ||
+        /document\.|window\.|export\s+default\s+|React|createRoot/.test(activeCode || '');
       const isWebEntry =
         activeIsMedia ||
         activeLang === 'html' ||
         activeLang === 'css' ||
+        activeLang === 'scss' ||
         activeLang === 'svg' ||
         activeLang === 'markdown' ||
         ((activeLang === 'js' || activeLang === 'ts' || activeLang === 'jsx' || activeLang === 'tsx') &&
-          hasHtmlWorkspace);
+          (hasHtmlWorkspace || usesDomOrUi || prefs.showPreview));
 
       if (isWebEntry) {
         if (!silent) setConsoleLogs([]);
@@ -567,19 +572,23 @@ export default function CodeLabIDE() {
     [activeFile, activeIsMedia, activeLang, activeCode, activeMeta.runnable, activeMeta.label, files, prefs.showPreview, appendLog, showNotice, locale, t]
   );
 
-  // Initial preview & auto-run debounce for web projects
+  // Initial preview & auto-run debounce for web/JS/TS/React/CSS/data projects (even without HTML)
   useEffect(() => {
     if (!hydrated) return;
     if (!prefs.autoRun && previewRev > 0) return;
-    const hasHtmlWorkspace = Object.keys(files).some((p) => /\.(html|htm)$/i.test(p));
     const isWebContext =
       activeIsMedia ||
       activeLang === 'html' ||
       activeLang === 'css' ||
+      activeLang === 'scss' ||
       activeLang === 'svg' ||
       activeLang === 'markdown' ||
-      ((activeLang === 'js' || activeLang === 'ts' || activeLang === 'jsx' || activeLang === 'tsx') &&
-        hasHtmlWorkspace);
+      activeLang === 'js' ||
+      activeLang === 'ts' ||
+      activeLang === 'jsx' ||
+      activeLang === 'tsx' ||
+      activeLang === 'json' ||
+      prefs.showPreview;
     if (!isWebContext) return;
 
     const timer = setTimeout(() => {
@@ -589,7 +598,7 @@ export default function CodeLabIDE() {
     }, 450);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [files, activeFile, activeLang, activeIsMedia, prefs.autoRun, hydrated, locale]);
+  }, [files, activeFile, activeLang, activeIsMedia, prefs.autoRun, prefs.showPreview, hydrated, locale]);
 
   const handleSplitGroup = useCallback(
     (sourceGroupId, explicitFile) => {
@@ -1335,15 +1344,18 @@ export default function CodeLabIDE() {
   useEffect(() => {
     if (!hydrated) return;
     try {
-      const hasHtmlWorkspace = Object.keys(files).some((p) => /\.(html|htm)$/i.test(p));
       const isWebEntry =
         activeIsMedia ||
         activeLang === 'html' ||
         activeLang === 'css' ||
+        activeLang === 'scss' ||
         activeLang === 'svg' ||
         activeLang === 'markdown' ||
-        ((activeLang === 'js' || activeLang === 'ts' || activeLang === 'jsx' || activeLang === 'tsx') &&
-          hasHtmlWorkspace);
+        activeLang === 'js' ||
+        activeLang === 'ts' ||
+        activeLang === 'jsx' ||
+        activeLang === 'tsx' ||
+        activeLang === 'json';
 
       let url = '#';
       if (isWebEntry) {
