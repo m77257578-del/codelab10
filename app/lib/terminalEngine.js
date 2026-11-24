@@ -867,7 +867,7 @@ export async function executeTerminalLine(rawLine, ctx, depth = 0) {
           return 1;
         }
         const lang = detectLang(resolved);
-        if (lang === 'html' || lang === 'css' || lang === 'svg' || lang === 'markdown') {
+        if (lang === 'html' || lang === 'css' || lang === 'scss' || lang === 'svg' || lang === 'markdown' || lang === 'jsx' || lang === 'tsx') {
           refreshPreview = true;
           write('success', `Live preview rebuilt for ${resolved}.`);
           return 0;
@@ -1000,17 +1000,15 @@ export async function executeTerminalLine(rawLine, ctx, depth = 0) {
           Object.keys(sourceFiles).find((k) => /\.(ts|tsx|jsx|js)$/i.test(k));
 
         if (tsOrJsEntry) {
-          const lang = detectLang(tsOrJsEntry);
-          const raw = sourceFiles[tsOrJsEntry];
-          const compiled =
-            lang === 'ts' || lang === 'tsx' || lang === 'jsx' ? transpileTSOrJSX(raw, lang) : raw;
-          const bytes = new TextEncoder().encode(compiled).length;
+          const bundleHtml = buildWebPreviewDoc(sourceFiles, tsOrJsEntry, false);
+          const bytes = new TextEncoder().encode(bundleHtml).length;
           if (!dryRun) {
-            files['dist/bundle.js'] = compiled;
+            files['dist/index.html'] = bundleHtml;
             filesMutated = true;
+            refreshPreview = true;
           }
           const ms = Math.max(1, Math.round(performance.now() - startedAt));
-          write('stdout', `  dist/bundle.js  ${formatBytes(bytes)}  (from ${tsOrJsEntry})`);
+          write('stdout', `  dist/index.html  ${formatBytes(bytes)}  (from ${tsOrJsEntry}, ${compiledCount} files linked)`);
           write('success', `Build succeeded in ${ms}ms.`);
           return 0;
         }

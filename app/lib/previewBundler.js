@@ -27,11 +27,50 @@ export function isHtmlFile(path = '') {
   return /\.(html|htm)$/i.test(path);
 }
 
-// Basic SCSS-to-CSS preprocessing (strips // comments, resolves simple $variables, flattens basic nested rules)
+export function isNonAppWorkspaceFile(path = '') {
+  const p = String(path || '');
+  return (
+    /(?:^|\/)(?:dist|node_modules|\.next|\.git)\//i.test(p) ||
+    /^app\/api\//i.test(p) ||
+    /\.(?:test|spec)\.[^/]+$/i.test(p) ||
+    /^(?:next|tailwind|postcss|vite|eslint|jest|vitest|babel)\.config\.[^/]+$/i.test(p) ||
+    /-copy\d*\.(?:js|mjs|cjs|jsx|ts|tsx)$/i.test(p)
+  );
+}
+
+// Lightweight offline Tailwind-compatible utility baseline for JSX/HTML classes without network access
+export const TAILWIND_SHIM_CSS = `
+.flex{display:flex}.inline-flex{display:inline-flex}.grid{display:grid}.block{display:block}.inline-block{display:inline-block}.hidden{display:none}
+.flex-col{flex-direction:column}.flex-row{flex-direction:row}.flex-wrap{flex-wrap:wrap}.flex-1{flex:1 1 0%}
+.items-center{align-items:center}.items-start{align-items:flex-start}.items-end{align-items:flex-end}
+.justify-center{justify-content:center}.justify-between{justify-content:space-between}.justify-end{justify-content:flex-end}
+.grid-cols-1{grid-template-columns:repeat(1,minmax(0,1fr))}.grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}.grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.grid-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.gap-1{gap:.25rem}.gap-2{gap:.5rem}.gap-3{gap:.75rem}.gap-4{gap:1rem}.gap-5{gap:1.25rem}.gap-6{gap:1.5rem}.gap-8{gap:2rem}
+.space-y-2>*+*{margin-top:.5rem}.space-y-3>*+*{margin-top:.75rem}.space-y-4>*+*{margin-top:1rem}.space-y-6>*+*{margin-top:1.5rem}
+.p-2{padding:.5rem}.p-3{padding:.75rem}.p-4{padding:1rem}.p-5{padding:1.25rem}.p-6{padding:1.5rem}.p-8{padding:2rem}
+.px-2{padding-left:.5rem;padding-right:.5rem}.px-3{padding-left:.75rem;padding-right:.75rem}.px-4{padding-left:1rem;padding-right:1rem}.px-6{padding-left:1.5rem;padding-right:1.5rem}
+.py-1{padding-top:.25rem;padding-bottom:.25rem}.py-1\\.5{padding-top:.375rem;padding-bottom:.375rem}.py-2{padding-top:.5rem;padding-bottom:.5rem}.py-3{padding-top:.75rem;padding-bottom:.75rem}.py-4{padding-top:1rem;padding-bottom:1rem}.py-8{padding-top:2rem;padding-bottom:2rem}
+.m-0{margin:0}.mx-auto{margin-left:auto;margin-right:auto}.mt-2{margin-top:.5rem}.mt-4{margin-top:1rem}.mt-6{margin-top:1.5rem}.mb-2{margin-bottom:.5rem}.mb-4{margin-bottom:1rem}.mb-6{margin-bottom:1.5rem}
+.w-full{width:100%}.h-full{height:100%}.min-h-screen{min-height:100vh}.max-w-md{max-width:28rem}.max-w-lg{max-width:32rem}.max-w-xl{max-width:36rem}.max-w-2xl{max-width:42rem}.max-w-4xl{max-width:56rem}.max-w-6xl{max-width:72rem}
+.rounded{border-radius:.25rem}.rounded-md{border-radius:.375rem}.rounded-lg{border-radius:.5rem}.rounded-xl{border-radius:.75rem}.rounded-2xl{border-radius:1rem}.rounded-full{border-radius:9999px}
+.border{border-width:1px;border-style:solid;border-color:#e2e8f0}.border-slate-200{border-color:#e2e8f0}.border-slate-700{border-color:#334155}.border-slate-800{border-color:#1e293b}
+.shadow{box-shadow:0 1px 3px rgba(0,0,0,.1)}.shadow-md{box-shadow:0 4px 6px -1px rgba(0,0,0,.1)}.shadow-lg{box-shadow:0 10px 15px -3px rgba(0,0,0,.1)}.shadow-xl{box-shadow:0 20px 25px -5px rgba(0,0,0,.1)}
+.text-xs{font-size:.75rem;line-height:1rem}.text-sm{font-size:.875rem;line-height:1.25rem}.text-base{font-size:1rem;line-height:1.5rem}.text-lg{font-size:1.125rem;line-height:1.75rem}.text-xl{font-size:1.25rem;line-height:1.75rem}.text-2xl{font-size:1.5rem;line-height:2rem}.text-3xl{font-size:1.875rem;line-height:2.25rem}
+.font-medium{font-weight:500}.font-semibold{font-weight:600}.font-bold{font-weight:700}.font-mono{font-family:ui-monospace,monospace}.text-center{text-align:center}
+.bg-white{background-color:#fff}.bg-slate-50{background-color:#f8fafc}.bg-slate-100{background-color:#f1f5f9}.bg-slate-800{background-color:#1e293b}.bg-slate-900{background-color:#0f172a}.bg-slate-950{background-color:#020617}
+.bg-sky-500{background-color:#0ea5e9}.bg-sky-600{background-color:#0284c7}.bg-blue-600{background-color:#2563eb}.bg-emerald-500{background-color:#10b981}.bg-emerald-600{background-color:#059669}.bg-rose-500{background-color:#f43f5e}.bg-amber-500{background-color:#f59e0b}
+.text-white{color:#fff}.text-slate-900{color:#0f172a}.text-slate-700{color:#334155}.text-slate-600{color:#475569}.text-slate-500{color:#64748b}.text-slate-400{color:#94a3b8}.text-slate-300{color:#cbd5e1}.text-slate-100{color:#f1f5f9}.text-sky-500{color:#0ea5e9}.text-sky-400{color:#38bdf8}.text-emerald-500{color:#10b981}.text-rose-500{color:#f43f5e}
+.cursor-pointer{cursor:pointer}.transition{transition:all .15s ease}.hover\\:opacity-90:hover{opacity:.9}
+`;
+
+// Basic SCSS/Tailwind CSS preprocessing (strips @tailwind directives, // comments, resolves simple $variables)
 export function preprocessCss(code = '', path = '') {
-  if (!/\.(scss|sass)$/i.test(path)) return code;
+  let out = String(code || '')
+    .replace(/^\s*@tailwind\s+[^;]+;\s*$/gim, '')
+    .replace(/^\s*@import\s+["']tailwindcss(?:\/[^"']*)?["']\s*;?\s*$/gim, '');
+  if (!/\.(scss|sass)$/i.test(path)) return out;
   const vars = {};
-  let out = String(code).replace(/\/\/.*$/gm, '');
+  out = out.replace(/\/\/.*$/gm, '');
   out = out.replace(/^\s*(\$[\w-]+)\s*:\s*([^;]+);/gm, (_, name, val) => {
     vars[name] = val.trim();
     return '';
@@ -47,7 +86,7 @@ export function detectJsxOrReact(code = '', path = '') {
   if (/\.(jsx|tsx)$/i.test(path)) return true;
   if (/import\s+[^;]*\bfrom\s+['"]react(?:-dom(?:\/client)?)?['"]/i.test(code)) return true;
   if (/React\.createElement|createRoot\s*\(|ReactDOM\.render\s*\(/.test(code)) return true;
-  if (/export\s+default\s+function\s+[A-Z]\w*|function\s+(?:App|Page|Home|Main)\s*\(/.test(code) && /return\s*\(?\s*</.test(code)) {
+  if (/export\s+default\s+(?:function\s+[A-Z]\w*|\([^)]*\)\s*=>)|function\s+(?:App|Page|Home|Main|RootLayout)\s*\(/.test(code) && /return\s*\(?\s*</.test(code)) {
     return true;
   }
   return false;
@@ -55,7 +94,7 @@ export function detectJsxOrReact(code = '', path = '') {
 
 export function detectTailwindUsage(files = {}) {
   for (const [path, entry] of Object.entries(files)) {
-    if (typeof entry !== 'string') continue;
+    if (typeof entry !== 'string' || isNonAppWorkspaceFile(path)) continue;
     if (isStyleFile(path) && /@tailwind\b|@import\s+["']tailwindcss["']/i.test(entry)) return true;
     if (
       (isHtmlFile(path) || isScriptFile(path)) &&
@@ -67,41 +106,96 @@ export function detectTailwindUsage(files = {}) {
   return false;
 }
 
+const PREFERRED_SCRIPT_ENTRIES = [
+  'src/main.tsx',
+  'src/main.jsx',
+  'src/main.ts',
+  'src/main.js',
+  'src/index.tsx',
+  'src/index.jsx',
+  'src/index.ts',
+  'src/index.js',
+  'src/App.tsx',
+  'src/App.jsx',
+  'src/App.ts',
+  'src/App.js',
+  'app/page.tsx',
+  'app/page.jsx',
+  'app/page.js',
+  'main.tsx',
+  'main.jsx',
+  'main.ts',
+  'main.js',
+  'App.tsx',
+  'App.jsx',
+  'App.ts',
+  'App.js',
+  'app.tsx',
+  'app.jsx',
+  'app.ts',
+  'app.js',
+  'index.tsx',
+  'index.jsx',
+  'index.ts',
+  'index.js',
+];
+
+function isSupportingScript(path = '', files = {}) {
+  if (!path) return false;
+  if (/^(?:src\/|app\/)?(?:components?|lib|utils?|helpers?|hooks?|context|services?|store|types?|styles?|data)\//i.test(path)) {
+    return true;
+  }
+  if (/^(?:src\/|app\/)?layout\.(?:tsx|jsx|ts|js)$/i.test(path)) return true;
+
+  // Check if another workspace script explicitly imports this file
+  for (const [otherPath, otherCode] of Object.entries(files)) {
+    if (otherPath === path || typeof otherCode !== 'string' || !isScriptFile(otherPath)) continue;
+    const importRe = /(?:from\s+|import\s+|require\s*\(\s*|import\s*\(\s*)(['"])([^'"]+)\1/g;
+    let m;
+    while ((m = importRe.exec(otherCode)) !== null) {
+      if (resolveModulePath(m[2], otherPath, files) === path) {
+        return true;
+      }
+    }
+  }
+
+  // If file has no side-effect execution (no createRoot, ReactDOM.render, document., window., console.), treat as supporting module
+  const code = files[path] || '';
+  const hasSideEffects = /(?:createRoot\s*\(|ReactDOM\.render\s*\(|document\.|window\.|console\.)/.test(code);
+  const exportsDefaultComponent = /export\s+default\s+/.test(code) && detectJsxOrReact(code, path);
+  if (!hasSideEffects && !exportsDefaultComponent) return true;
+
+  return false;
+}
+
 export function pickScriptEntry(files = {}, activeFile = '') {
-  if (activeFile && isScriptFile(activeFile) && typeof files[activeFile] === 'string') {
+  let preferredEntry = '';
+  for (const candidate of PREFERRED_SCRIPT_ENTRIES) {
+    if (typeof files[candidate] === 'string') {
+      preferredEntry = candidate;
+      break;
+    }
+  }
+  if (!preferredEntry) {
+    preferredEntry =
+      Object.keys(files).find((k) => /\.(tsx|jsx)$/i.test(k) && typeof files[k] === 'string' && !isNonAppWorkspaceFile(k) && !/layout\./i.test(k)) ||
+      Object.keys(files).find((k) => isScriptFile(k) && typeof files[k] === 'string' && !isNonAppWorkspaceFile(k) && !isSupportingScript(k, files)) ||
+      Object.keys(files).find((k) => isScriptFile(k) && typeof files[k] === 'string' && !isNonAppWorkspaceFile(k)) ||
+      Object.keys(files).find((k) => isScriptFile(k) && typeof files[k] === 'string') ||
+      '';
+  }
+
+  if (activeFile && isScriptFile(activeFile) && typeof files[activeFile] === 'string' && !isNonAppWorkspaceFile(activeFile)) {
+    if (PREFERRED_SCRIPT_ENTRIES.includes(activeFile)) {
+      return activeFile;
+    }
+    if (preferredEntry && preferredEntry !== activeFile && isSupportingScript(activeFile, files)) {
+      return preferredEntry;
+    }
     return activeFile;
   }
-  const preferred = [
-    'src/main.tsx',
-    'src/main.jsx',
-    'src/main.ts',
-    'src/main.js',
-    'src/App.tsx',
-    'src/App.jsx',
-    'src/App.ts',
-    'src/App.js',
-    'app/page.tsx',
-    'app/page.jsx',
-    'app/page.js',
-    'App.tsx',
-    'App.jsx',
-    'main.tsx',
-    'main.jsx',
-    'main.ts',
-    'main.js',
-    'index.tsx',
-    'index.jsx',
-    'index.ts',
-    'index.js',
-    'app.tsx',
-    'app.jsx',
-    'app.ts',
-    'app.js',
-  ];
-  for (const candidate of preferred) {
-    if (typeof files[candidate] === 'string') return candidate;
-  }
-  return Object.keys(files).find((k) => isScriptFile(k) && typeof files[k] === 'string') || '';
+
+  return preferredEntry;
 }
 
 export function resolveModulePath(specifier, fromPath, files = {}) {
@@ -307,7 +401,7 @@ export const MINI_REACT_RUNTIME = `<script>(()=>{
   }
 
   const SVG_TAGS = new Set(['svg','path','circle','rect','line','polygon','polyline','ellipse','g','defs','linearGradient','stop','text']);
-  const UNITLESS = new Set(['opacity','zIndex','fontWeight','lineHeight','flex','flexGrow','flexShrink','order','zoom']);
+  const UNITLESS = new Set(['opacity','zIndex','fontWeight','lineHeight','flex','flexGrow','flexShrink','order','zoom','scale','columnCount','fillOpacity','strokeOpacity','strokeWidth']);
 
   function setProp(el, k, v) {
     if (k === 'children' || k === 'key') return;
@@ -319,7 +413,8 @@ export const MINI_REACT_RUNTIME = `<script>(()=>{
     if (k === 'style' && v && typeof v === 'object') {
       for (const [sk, sv] of Object.entries(v)) {
         if (sv == null) continue;
-        el.style[sk] = typeof sv === 'number' && !UNITLESS.has(sk) ? sv + 'px' : String(sv);
+        if (sk.startsWith('--')) el.style.setProperty(sk, String(sv));
+        else el.style[sk] = typeof sv === 'number' && !UNITLESS.has(sk) ? sv + 'px' : String(sv);
       }
       return;
     }
@@ -377,9 +472,32 @@ export const MINI_REACT_RUNTIME = `<script>(()=>{
       }
       return renderNode(out, pathKey + '.0', inSvg);
     }
+    const props = vnode.props || {};
+    if (vnode.type === 'head' || vnode.type === 'meta' || vnode.type === 'link') {
+      return document.createDocumentFragment();
+    }
+    if (vnode.type === 'title') {
+      const text = normalizeChildren(props.children).map((c) => typeof c === 'string' || typeof c === 'number' ? String(c) : '').join('');
+      if (text) document.title = text;
+      return document.createDocumentFragment();
+    }
+    if (vnode.type === 'html' || vnode.type === 'body') {
+      if (vnode.type === 'html') {
+        if (props.lang) document.documentElement.lang = props.lang;
+        if (props.dir) document.documentElement.dir = props.dir;
+      }
+      if (vnode.type === 'body' && props.className) {
+        document.body.className = props.className;
+      }
+      const wrapper = document.createElement('div');
+      wrapper.setAttribute(vnode.type === 'html' ? 'data-codelab-html' : 'data-codelab-body', 'true');
+      if (props.className) wrapper.setAttribute('class', props.className);
+      if (props.style) setProp(wrapper, 'style', props.style);
+      normalizeChildren(props.children).forEach((child, idx) => wrapper.appendChild(renderNode(child, pathKey + '.' + idx, inSvg)));
+      return wrapper;
+    }
     const isSvg = inSvg || vnode.type === 'svg' || SVG_TAGS.has(vnode.type);
     const el = isSvg ? document.createElementNS('http://www.w3.org/2000/svg', vnode.type) : document.createElement(vnode.type);
-    const props = vnode.props || {};
     for (const [k, v] of Object.entries(props)) setProp(el, k, v);
     if (!props.dangerouslySetInnerHTML) {
       normalizeChildren(props.children).forEach((child, idx) => el.appendChild(renderNode(child, pathKey + '.' + idx, isSvg)));
@@ -392,18 +510,23 @@ export const MINI_REACT_RUNTIME = `<script>(()=>{
     pendingEffects.length = 0;
     const active = document.activeElement;
     const activeId = active && active.id ? active.id : null;
+    const activeInputIdx = !activeId && active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName) && rootContainer.contains(active)
+      ? Array.from(rootContainer.querySelectorAll('input,textarea,select')).indexOf(active)
+      : -1;
     const selStart = active && typeof active.selectionStart === 'number' ? active.selectionStart : null;
     try {
       const dom = renderNode(rootVNode, 'root', false);
       rootContainer.innerHTML = '';
       rootContainer.appendChild(dom);
-      if (activeId) {
-        const el = document.getElementById(activeId);
-        if (el && typeof el.focus === 'function') {
-          el.focus();
-          if (selStart !== null && typeof el.setSelectionRange === 'function') {
-            try { el.setSelectionRange(selStart, selStart); } catch {}
-          }
+      const focusTarget = activeId
+        ? document.getElementById(activeId)
+        : activeInputIdx >= 0
+          ? rootContainer.querySelectorAll('input,textarea,select')[activeInputIdx]
+          : null;
+      if (focusTarget && typeof focusTarget.focus === 'function') {
+        focusTarget.focus();
+        if (selStart !== null && typeof focusTarget.setSelectionRange === 'function') {
+          try { focusTarget.setSelectionRange(selStart, selStart); } catch {}
         }
       }
       const effects = pendingEffects.splice(0);
@@ -431,6 +554,9 @@ export const MINI_REACT_RUNTIME = `<script>(()=>{
     Component,
     PureComponent: Component,
     createElement,
+    jsx: (type, props, key) => createElement(type, key !== undefined ? Object.assign({}, props, { key }) : props),
+    jsxs: (type, props, key) => createElement(type, key !== undefined ? Object.assign({}, props, { key }) : props),
+    jsxDEV: (type, props, key) => createElement(type, key !== undefined ? Object.assign({}, props, { key }) : props),
     cloneElement: (el, props, ...children) => createElement(el.type, Object.assign({}, el.props, props), ...(children.length ? children : [el.props?.children])),
     isValidElement: (el) => Boolean(el && typeof el === 'object' && el.$$typeof === Symbol.for('codelab.element')),
     createContext,
@@ -456,6 +582,7 @@ export const MINI_REACT_RUNTIME = `<script>(()=>{
 
   const ReactDOM = {
     render(vnode, container) {
+      window.__codelabMounted = true;
       rootContainer = container;
       rootVNode = vnode;
       commitRender();
@@ -463,11 +590,13 @@ export const MINI_REACT_RUNTIME = `<script>(()=>{
     createRoot(container) {
       return {
         render(vnode) {
+          window.__codelabMounted = true;
           rootContainer = container;
           rootVNode = vnode;
           commitRender();
         },
         unmount() {
+          window.__codelabMounted = false;
           if (container) container.innerHTML = '';
         },
       };
@@ -622,11 +751,46 @@ export function buildEmptyBodyObserver(activeFile = '', locale = 'ar') {
 })();<\/script>`;
 }
 
-// Compile workspace script modules starting from entryPath into an inline CommonJS bundle script
-export function compileWorkspaceBundle(files = {}, entryPath = '', resolveMediaUrl = () => null, resolveCssUrls = (s) => s) {
+export function transpileClassicScript(code, filePath = 'script.js') {
+  try {
+    const ext = filePath.split('.').pop()?.toLowerCase() || 'js';
+    const transforms = [];
+    if (ext === 'ts' || ext === 'tsx') transforms.push('typescript');
+    if (ext === 'jsx' || ext === 'tsx' || (/<[A-Za-z>]/.test(code) && detectJsxOrReact(code, filePath))) {
+      transforms.push('jsx');
+    }
+    if (transforms.length === 0) return code;
+    return transform(code, {
+      transforms,
+      jsxPragma: 'React.createElement',
+      jsxFragmentPragma: 'React.Fragment',
+    }).code;
+  } catch (err) {
+    const msg = err?.message || 'Syntax error';
+    return `console.error(${JSON.stringify(`${filePath}: ${msg}`)});`;
+  }
+}
+
+// Compile workspace script modules starting from entryPath into an inline CommonJS bundle script + optional global sibling scripts
+export function compileWorkspaceBundle(
+  files = {},
+  entryPath = '',
+  resolveMediaUrl = () => null,
+  resolveCssUrls = (s) => s,
+  options = {}
+) {
   const visited = new Set();
   const modules = {};
   const extraCss = [];
+
+  // Detect Next.js App Router layout wrapper when previewing app/page.*
+  let nextLayoutPath = '';
+  if (/^app\/page\.(?:tsx|jsx|ts|js)$/i.test(entryPath)) {
+    nextLayoutPath =
+      ['app/layout.tsx', 'app/layout.jsx', 'app/layout.js', 'app/layout.ts'].find(
+        (p) => typeof files[p] === 'string'
+      ) || '';
+  }
 
   function visit(path) {
     if (!path || visited.has(path)) return;
@@ -653,8 +817,7 @@ export function compileWorkspaceBundle(files = {}, entryPath = '', resolveMediaU
       return;
     }
 
-    // Rewrite relative/alias imports to canonical workspace paths before transpiling
-    const importRe = /(?:from\s+|import\s+|require\s*\(\s*)(['"])([^'"]+)\1/g;
+    const importRe = /(?:from\s+|import\s+|require\s*\(\s*|import\s*\(\s*)(['"])([^'"]+)\1/g;
     let match;
     while ((match = importRe.exec(entry)) !== null) {
       const resolved = resolveModulePath(match[2], path, files);
@@ -665,12 +828,13 @@ export function compileWorkspaceBundle(files = {}, entryPath = '', resolveMediaU
   }
 
   visit(entryPath);
+  if (nextLayoutPath) visit(nextLayoutPath);
 
   const resolutionMap = {};
   for (const fromPath of visited) {
     const src = files[fromPath];
     if (typeof src !== 'string') continue;
-    const importRe = /(?:from\s+|import\s+|require\s*\(\s*)(['"])([^'"]+)\1/g;
+    const importRe = /(?:from\s+|import\s+|require\s*\(\s*|import\s*\(\s*)(['"])([^'"]+)\1/g;
     let m;
     while ((m = importRe.exec(src)) !== null) {
       const resolved = resolveModulePath(m[2], fromPath, files);
@@ -680,7 +844,28 @@ export function compileWorkspaceBundle(files = {}, entryPath = '', resolveMediaU
     }
   }
 
+  // Sibling global scripts (without import/export) when linking a multi-file workspace without HTML
+  const siblingGlobals = [];
+  if (options.includeSiblingGlobals !== false) {
+    for (const [path, content] of Object.entries(files)) {
+      if (visited.has(path) || typeof content !== 'string' || !isScriptFile(path)) continue;
+      if (isNonAppWorkspaceFile(path)) continue;
+      const usesModuleSyntax = /^\s*(?:import|export)\s+/m.test(content) || /\brequire\s*\(/.test(content);
+      if (!usesModuleSyntax) {
+        siblingGlobals.push({ path, code: transpileClassicScript(content, path) });
+      }
+    }
+  }
+
+  const preludeScript = siblingGlobals
+    .map(({ path, code }) => `<script data-file="${escapeHtml(path)}">\n${escapeInlineScript(code)}\n<\/script>`)
+    .join('\n');
+
+  const entrySource = typeof files[entryPath] === 'string' ? files[entryPath] : '';
+  const entryHasJsx = detectJsxOrReact(entrySource, entryPath);
+
   const runtimeScript = `<script>(()=>{
+  const process = window.process || { env: { NODE_ENV: 'development' } };
   const MODULES = {
 ${Object.entries(modules)
   .map(([p, code]) => `    ${JSON.stringify(p)}: function(module, exports, require, __filename) {\n${escapeInlineScript(code)}\n    }`)
@@ -689,6 +874,8 @@ ${Object.entries(modules)
   const RES_MAP = ${escapeInlineScript(JSON.stringify(resolutionMap))};
   const CACHE = {};
   const ENTRY = ${JSON.stringify(entryPath)};
+  const LAYOUT_ENTRY = ${JSON.stringify(nextLayoutPath)};
+  const ENTRY_HAS_JSX = ${JSON.stringify(entryHasJsx)};
 
   function makeStubIcon(name) {
     return function IconStub(props) {
@@ -703,10 +890,34 @@ ${Object.entries(modules)
     };
   }
 
+  function makeMotionProxy() {
+    const STRIP = new Set(['initial','animate','exit','transition','variants','whileHover','whileTap','whileInView','viewport','layout','layoutId']);
+    return new Proxy({}, {
+      get: (_, tag) => function MotionEl(props) {
+        const React = window.React;
+        const clean = {};
+        if (props) {
+          for (const [k, v] of Object.entries(props)) {
+            if (!STRIP.has(k)) clean[k] = v;
+          }
+        }
+        return React.createElement(String(tag), clean);
+      },
+    });
+  }
+
   function makeRequire(fromPath) {
     return function require(spec) {
       if (spec === 'react' || spec === 'react/jsx-runtime' || spec === 'react/jsx-dev-runtime') return window.React;
       if (spec === 'react-dom' || spec === 'react-dom/client') return window.ReactDOM;
+      if (spec === 'motion/react' || spec === 'framer-motion') {
+        const React = window.React;
+        return {
+          __esModule: true,
+          motion: makeMotionProxy(),
+          AnimatePresence: ({ children }) => React.createElement(React.Fragment, null, children),
+        };
+      }
       if (spec === 'next/link') {
         const React = window.React;
         return { __esModule: true, default: ({ href, children, ...rest }) => React.createElement('a', Object.assign({ href: href || '#' }, rest), children) };
@@ -749,7 +960,8 @@ ${Object.entries(modules)
   }
 
   try {
-    const exp = makeRequire(ENTRY)(ENTRY);
+    const req = makeRequire(ENTRY);
+    const exp = req(ENTRY);
     const rootEl = document.getElementById('root') || document.getElementById('app');
     const candidate = exp && (exp.default || exp.App || exp.Page || exp.Home || (typeof exp === 'function' ? exp : null));
     const looksLikeComponent =
@@ -759,10 +971,18 @@ ${Object.entries(modules)
       (window.React.isValidElement(candidate) ||
         (typeof candidate === 'function' &&
           (candidate.prototype?.isReactComponent ||
+            ENTRY_HAS_JSX ||
             /\.(jsx|tsx)$/i.test(ENTRY) ||
             /^[A-Z]/.test(candidate.name || ''))));
-    if (rootEl && rootEl.childNodes.length === 0 && looksLikeComponent) {
-      const el = typeof candidate === 'function' ? window.React.createElement(candidate, null) : candidate;
+    if (!window.__codelabMounted && rootEl && rootEl.childNodes.length === 0 && looksLikeComponent) {
+      let el = typeof candidate === 'function' ? window.React.createElement(candidate, null) : candidate;
+      if (LAYOUT_ENTRY && MODULES[LAYOUT_ENTRY]) {
+        const layoutMod = req(LAYOUT_ENTRY);
+        const LayoutComp = layoutMod && (layoutMod.default || layoutMod.RootLayout);
+        if (typeof LayoutComp === 'function') {
+          el = window.React.createElement(LayoutComp, null, el);
+        }
+      }
       if (window.React.isValidElement(el)) {
         window.ReactDOM.createRoot(rootEl).render(el);
       }
@@ -772,5 +992,5 @@ ${Object.entries(modules)
   }
 })();<\/script>`;
 
-  return { runtimeScript, extraCss: extraCss.join('\n') };
+  return { runtimeScript, preludeScript, extraCss: extraCss.join('\n'), bundledPaths: visited };
 }

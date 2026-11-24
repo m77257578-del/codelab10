@@ -141,6 +141,13 @@ export const TRANSLATIONS = {
     duplicateAria: (name) => `تكرار ${name}`,
     deleteTitle: 'حذف الملف',
     deleteAria: (name) => `حذف ${name}`,
+    renameFolderTitle: 'إعادة تسمية المجلد',
+    renameFolderAria: (name) => `إعادة تسمية المجلد ${name}`,
+    deleteFolderTitle: 'حذف المجلد',
+    deleteFolderAria: (name) => `حذف المجلد ${name}`,
+    invalidPathNotice: 'مسار الملف أو المجلد غير صالح',
+    confirmRenameTitle: 'تأكيد إعادة التسمية',
+    cancelRenameTitle: 'إلغاء إعادة التسمية',
     newFolderStarterComment: '// ملف جديد داخل المجلد\n',
 
     // Editor Group Pane
@@ -577,6 +584,13 @@ export const TRANSLATIONS = {
     duplicateAria: (name) => `Duplicate ${name}`,
     deleteTitle: 'Delete File',
     deleteAria: (name) => `Delete ${name}`,
+    renameFolderTitle: 'Rename Folder',
+    renameFolderAria: (name) => `Rename folder ${name}`,
+    deleteFolderTitle: 'Delete Folder',
+    deleteFolderAria: (name) => `Delete folder ${name}`,
+    invalidPathNotice: 'Invalid file or folder path',
+    confirmRenameTitle: 'Confirm Rename',
+    cancelRenameTitle: 'Cancel Rename',
     newFolderStarterComment: '// New file inside folder\n',
 
     // Editor Group Pane

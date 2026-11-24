@@ -63,7 +63,7 @@ import {
 import { WORKSPACE_TEMPLATES, detectLang, getLangMeta } from './lib/workspaces';
 import { diagnose, explainRuntimeError, formatCode } from './lib/diagnostics';
 import { formatWithPrettier } from './lib/formatter';
-import { buildWebPreviewDoc, isPyodideReady, runCode, runWorker } from './lib/runner';
+import { buildWebPreviewDoc, isPyodideReady, resolvePreviewTarget, runCode, runWorker } from './lib/runner';
 import { I18nProvider } from './lib/LocaleContext';
 import { createTranslator, getToggleLocale, normalizeLocale } from './lib/i18n';
 import {
@@ -97,6 +97,13 @@ import {
   renameFileInGroups,
   splitEditorGroup,
 } from './lib/editorGroups';
+import {
+  createWorkspaceFile,
+  deleteWorkspaceFile,
+  deleteWorkspaceFolder,
+  renameWorkspaceFile,
+  renameWorkspaceFolder,
+} from './lib/workspaceFiles';
 
 const STORAGE_FILES_LEGACY = 'codelab_ide_files_v1';
 const STORAGE_TABS = 'codelab_ide_tabs_v1';
@@ -436,13 +443,17 @@ export default function CodeLabIDE() {
 
   const showCodingBar = !activeIsMedia && (isMobile || prefs.showMobileBar);
 
-  // Check if current workspace has web/previewable files
+  // Check if current workspace has web/previewable files (including JS/TS/JSX/TSX/CSS/JSON without HTML)
   const hasWebFiles = useMemo(
     () =>
-      Object.keys(files).some((p) => /\.(html|htm|css|svg)$/i.test(p)) ||
-      activeLang === 'markdown' ||
+      Object.keys(files).some((p) => /\.(html|htm|css|scss|sass|less|js|mjs|cjs|jsx|ts|tsx|svg|md|markdown|json)$/i.test(p)) ||
       activeIsMedia,
-    [files, activeLang, activeIsMedia]
+    [files, activeIsMedia]
+  );
+
+  const previewTarget = useMemo(
+    () => resolvePreviewTarget(files, activeFile),
+    [files, activeFile]
   );
 
   // Diagnostics across code files
@@ -484,7 +495,11 @@ export default function CodeLabIDE() {
   const doRun = useCallback(
     async (silent = false) => {
       if (!activeFile) return;
-      const hasHtmlWorkspace = Object.keys(files).some((p) => /\.(html|htm)$/i.test(p));
+      const fileKeys = Object.keys(files);
+      const hasHtmlWorkspace = fileKeys.some((p) => /\.(html|htm)$/i.test(p));
+      const hasMultiFileWeb =
+        fileKeys.some((p) => /\.(css|scss|sass|less)$/i.test(p)) ||
+        fileKeys.filter((p) => /\.(js|mjs|cjs|jsx|ts|tsx)$/i.test(p)).length > 1;
       const usesDomOrUi =
         activeLang === 'jsx' ||
         activeLang === 'tsx' ||
@@ -496,8 +511,10 @@ export default function CodeLabIDE() {
         activeLang === 'scss' ||
         activeLang === 'svg' ||
         activeLang === 'markdown' ||
-        ((activeLang === 'js' || activeLang === 'ts' || activeLang === 'jsx' || activeLang === 'tsx') &&
-          (hasHtmlWorkspace || usesDomOrUi || prefs.showPreview));
+        activeLang === 'jsx' ||
+        activeLang === 'tsx' ||
+        ((activeLang === 'js' || activeLang === 'ts') &&
+          (hasHtmlWorkspace || hasMultiFileWeb || usesDomOrUi || prefs.showPreview));
 
       if (isWebEntry) {
         if (!silent) setConsoleLogs([]);
@@ -554,6 +571,10 @@ export default function CodeLabIDE() {
 
       const res = await runCode(activeLang, activeCode, files, locale);
       setRunning(false);
+
+      // Sync live execution output to Preview pane as well so Preview always stays current
+      setPreviewDoc(buildWebPreviewDoc(files, activeFile, true, locale, { execResult: res }));
+      setPreviewRev((n) => n + 1);
 
       if (res.noRun || res.err) {
         appendLog('error', explainRuntimeError(res.err, locale));
@@ -718,18 +739,18 @@ export default function CodeLabIDE() {
 
   const handleCreateFile = useCallback(
     (rawPath, initialContent) => {
-      const clean = rawPath.trim().replace(/^\/+|\/+$/g, '');
-      if (!clean) return;
-      if (files[clean] !== undefined) {
-        handleSelectFile(clean);
-        showNotice(t('fileExistsNotice'));
+      const res = createWorkspaceFile(files, rawPath, initialContent);
+      if (!res.ok) {
+        if (res.reason === 'exists') {
+          handleSelectFile(res.path);
+          showNotice(t('fileExistsNotice'));
+        } else {
+          showNotice(t('invalidPathNotice'));
+        }
         return;
       }
-      const detected = detectLang(clean);
-      const starter =
-        initialContent !== undefined ? initialContent : getLangMeta(detected).starter || '';
-      setFiles((prev) => ({ ...prev, [clean]: starter }));
-      setEditorGroups((prev) => openFileInGroup(prev, activeGroupId, clean));
+      setFiles(res.files);
+      setEditorGroups((prev) => openFileInGroup(prev, activeGroupId, res.path));
     },
     [files, activeGroupId, handleSelectFile, showNotice, t]
   );
@@ -761,17 +782,14 @@ export default function CodeLabIDE() {
 
   const handleRenameFile = useCallback(
     (oldPath, newPath) => {
-      if (files[newPath] !== undefined) {
-        showNotice(t('duplicateNameNotice'));
+      const res = renameWorkspaceFile(files, oldPath, newPath);
+      if (!res.ok) {
+        if (res.reason === 'exists') showNotice(t('duplicateNameNotice'));
+        else if (res.reason === 'invalid') showNotice(t('invalidPathNotice'));
         return;
       }
-      setFiles((prev) => {
-        const next = { ...prev };
-        next[newPath] = next[oldPath];
-        delete next[oldPath];
-        return next;
-      });
-      setEditorGroups((prev) => renameFileInGroups(prev, oldPath, newPath));
+      setFiles(res.files);
+      setEditorGroups((prev) => renameFileInGroups(prev, res.oldPath, res.newPath));
     },
     [files, showNotice, t]
   );
@@ -795,16 +813,14 @@ export default function CodeLabIDE() {
 
   const handleDeleteFile = useCallback(
     (path) => {
-      const remaining = { ...files };
-      delete remaining[path];
-      const keys = Object.keys(remaining);
-      setFiles(remaining);
-      setEditorGroups((prev) => {
-        const res = removeFileFromGroups(prev, path, remaining, activeGroupId);
-        setActiveGroupId(res.activeGroupId);
-        if (res.groups.length !== prev.length) setGroupRatios(null);
-        return res.groups;
-      });
+      const del = deleteWorkspaceFile(files, path);
+      if (!del.ok) return;
+      const keys = Object.keys(del.files);
+      setFiles(del.files);
+      const groupRes = removeFileFromGroups(editorGroups, path, del.files, activeGroupId);
+      setEditorGroups(groupRes.groups);
+      setActiveGroupId(groupRes.activeGroupId);
+      if (groupRes.groups.length !== editorGroups.length) setGroupRatios(null);
       if (keys.length === 0) {
         setPreviewDoc('');
         setPreviewRev((n) => n + 1);
@@ -812,7 +828,53 @@ export default function CodeLabIDE() {
         showNotice(t('allFilesDeletedNotice'));
       }
     },
-    [files, activeGroupId, showNotice, t]
+    [files, editorGroups, activeGroupId, showNotice, t]
+  );
+
+  const handleRenameFolder = useCallback(
+    (oldPrefix, newPrefix) => {
+      const res = renameWorkspaceFolder(files, oldPrefix, newPrefix);
+      if (!res.ok) {
+        if (res.reason === 'exists') showNotice(t('duplicateNameNotice'));
+        else if (res.reason === 'invalid') showNotice(t('invalidPathNotice'));
+        return;
+      }
+      setFiles(res.files);
+      setEditorGroups((prev) => {
+        let updated = prev;
+        for (const [src, dest] of Object.entries(res.renamedMap)) {
+          updated = renameFileInGroups(updated, src, dest);
+        }
+        return updated;
+      });
+    },
+    [files, showNotice, t]
+  );
+
+  const handleDeleteFolder = useCallback(
+    (folderPrefix) => {
+      const res = deleteWorkspaceFolder(files, folderPrefix);
+      if (!res.ok) return;
+      const keys = Object.keys(res.files);
+      setFiles(res.files);
+      let nextGroups = editorGroups;
+      let nextActiveGroupId = activeGroupId;
+      for (const p of res.removedPaths) {
+        const removed = removeFileFromGroups(nextGroups, p, res.files, nextActiveGroupId);
+        nextGroups = removed.groups;
+        nextActiveGroupId = removed.activeGroupId;
+      }
+      setEditorGroups(nextGroups);
+      setActiveGroupId(nextActiveGroupId);
+      if (nextGroups.length !== editorGroups.length) setGroupRatios(null);
+      if (keys.length === 0) {
+        setPreviewDoc('');
+        setPreviewRev((n) => n + 1);
+        setConsoleLogs([]);
+        showNotice(t('allFilesDeletedNotice'));
+      }
+    },
+    [files, editorGroups, activeGroupId, showNotice, t]
   );
 
   const handleClearAllFiles = useCallback(() => {
@@ -837,7 +899,8 @@ export default function CodeLabIDE() {
         const entry =
           importedNames.find((p) => /^index\.html?$/i.test(p)) ||
           importedNames.find((p) => /\/index\.html?$/i.test(p)) ||
-          importedNames.find((p) => /^(main|app|index)\.[^/]+$/i.test(p)) ||
+          importedNames.find((p) => /^(?:src\/)?(?:main|App|index)\.[^/]+$/i.test(p)) ||
+          importedNames.find((p) => /^app\/page\.[^/]+$/i.test(p)) ||
           importedNames.find((p) => !isMediaEntry(loaded[p])) ||
           importedNames[0];
         setEditorGroups((prev) => {
@@ -852,6 +915,8 @@ export default function CodeLabIDE() {
           });
           return next;
         });
+        setPreviewDoc('');
+        setPreviewRev((n) => n + 1);
         setPrefs((p) => ({ ...p, showExplorer: true }));
         showNotice(
           meta?.source === 'zip'
@@ -1044,9 +1109,11 @@ export default function CodeLabIDE() {
       setActiveGroupId(initial.activeGroupId);
       setGroupRatios(null);
       setConsoleLogs([]);
+      setPreviewDoc('');
+      setPreviewRev((n) => n + 1);
       clearGitHubLink();
       setGithubLink(null);
-      const isWeb = tpl.id === 'web-app';
+      const isWeb = tpl.id === 'web-app' || tpl.id === 'typescript-lab';
       setFocusMode(false);
       setPrefs((p) => ({ ...p, showPreview: isWeb && !isMobile, showDock: false }));
       const localizedTplName = dict.templates?.[tpl.id]?.name || tpl.name;
@@ -1094,11 +1161,15 @@ export default function CodeLabIDE() {
       const nextFiles = pulledFiles && typeof pulledFiles === 'object' ? pulledFiles : {};
       const keys = Object.keys(nextFiles);
       setFiles(nextFiles);
+      setPreviewDoc('');
+      setPreviewRev((n) => n + 1);
 
       if (keys.length > 0) {
         const entry =
           keys.find((p) => /^index\.html?$/i.test(p)) ||
-          keys.find((p) => /^(main|app|index)\.[^/]+$/i.test(p)) ||
+          keys.find((p) => /\/index\.html?$/i.test(p)) ||
+          keys.find((p) => /^(?:src\/)?(?:main|App|index)\.[^/]+$/i.test(p)) ||
+          keys.find((p) => /^app\/page\.[^/]+$/i.test(p)) ||
           keys.find((p) => !isMediaEntry(nextFiles[p])) ||
           keys[0];
         const initialTabs = Array.from(new Set([entry, ...keys.slice(0, 6)]));
@@ -1359,8 +1430,7 @@ export default function CodeLabIDE() {
 
       let url = '#';
       if (isWebEntry) {
-        const doc = previewDoc || buildWebPreviewDoc(files, activeFile, true, locale);
-        const cleanHtml = doc.replace(/<script>\(\(\)=>\{[\s\S]*?<\/script>/, '');
+        const cleanHtml = buildWebPreviewDoc(files, activeFile, false, locale);
         url = URL.createObjectURL(new Blob([cleanHtml], { type: 'text/html' }));
       } else {
         const html = `<!DOCTYPE html>
@@ -2183,6 +2253,8 @@ export default function CodeLabIDE() {
                 onRenameFile={handleRenameFile}
                 onDuplicateFile={handleDuplicateFile}
                 onDeleteFile={handleDeleteFile}
+                onRenameFolder={handleRenameFolder}
+                onDeleteFolder={handleDeleteFolder}
                 onImportFiles={handleImportFiles}
                 onImportError={showNotice}
                 onExportWorkspace={() => setExportOpen(true)}
@@ -2473,8 +2545,8 @@ export default function CodeLabIDE() {
               <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300 min-w-0">
                 <span className="font-semibold shrink-0">{t('livePreview')}</span>
                 <span className="text-slate-400">·</span>
-                <span className="font-mono text-[11px] text-slate-500 truncate max-w-[140px]" dir="ltr">
-                  {activeFile}
+                <span className="font-mono text-[11px] text-slate-500 truncate max-w-[160px]" dir="ltr">
+                  {previewTarget || activeFile}
                 </span>
               </div>
 

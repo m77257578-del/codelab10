@@ -21,8 +21,10 @@ import {
   Search,
   X,
   Columns2,
+  Check,
 } from 'lucide-react';
 import { detectLang, detectMediaKind } from '../lib/workspaces';
+import { normalizeWorkspacePath } from '../lib/workspaceFiles';
 import { extractZipArchive, isMediaEntry } from '../lib/storage';
 import LanguageIcon from './LanguageIcon';
 import { useI18n } from '../lib/LocaleContext';
@@ -90,6 +92,8 @@ export default function FileExplorer({
   onRenameFile,
   onDuplicateFile,
   onDeleteFile,
+  onRenameFolder,
+  onDeleteFolder,
   onImportFiles,
   onImportError,
   onExportWorkspace,
@@ -104,6 +108,8 @@ export default function FileExplorer({
   const [draftName, setDraftName] = useState('');
   const [renamingPath, setRenamingPath] = useState(null);
   const [renameVal, setRenameVal] = useState('');
+  const [renamingFolder, setRenamingFolder] = useState(null);
+  const [renameFolderVal, setRenameFolderVal] = useState('');
   const [editingProject, setEditingProject] = useState(false);
   const [projectDraft, setProjectDraft] = useState(projectName || 'my-codelab-project');
   const [collapsed, setCollapsed] = useState({});
@@ -177,17 +183,18 @@ export default function FileExplorer({
 
   const submitCreate = (e) => {
     e.preventDefault();
-    const clean = draftName.trim().replace(/^\/+|\/+$/g, '');
+    const clean = normalizeWorkspacePath(draftName);
     if (!clean) {
+      if (draftName.trim()) onImportError?.(t('invalidPathNotice'));
       setCreating(null);
       return;
     }
     if (creating.type === 'folder') {
-      const full = `${creating.prefix ? creating.prefix + '/' : ''}${clean}/index.js`;
-      onCreateFile(full, t('newFolderStarterComment'));
+      const full = normalizeWorkspacePath(`${creating.prefix ? creating.prefix + '/' : ''}${clean}/index.js`);
+      if (full) onCreateFile(full, t('newFolderStarterComment'));
     } else {
-      const full = `${creating.prefix ? creating.prefix + '/' : ''}${clean}`;
-      onCreateFile(full);
+      const full = normalizeWorkspacePath(`${creating.prefix ? creating.prefix + '/' : ''}${clean}`);
+      if (full) onCreateFile(full);
     }
     setDraftName('');
     setCreating(null);
@@ -195,11 +202,24 @@ export default function FileExplorer({
 
   const submitRename = (e, oldPath) => {
     e.preventDefault();
-    const next = renameVal.trim().replace(/^\/+|\/+$/g, '');
-    if (next && next !== oldPath) {
+    const next = normalizeWorkspacePath(renameVal);
+    if (!next && renameVal.trim()) {
+      onImportError?.(t('invalidPathNotice'));
+    } else if (next && next !== oldPath) {
       onRenameFile(oldPath, next);
     }
     setRenamingPath(null);
+  };
+
+  const submitRenameFolder = (e, oldPrefix) => {
+    e.preventDefault();
+    const next = normalizeWorkspacePath(renameFolderVal);
+    if (!next && renameFolderVal.trim()) {
+      onImportError?.(t('invalidPathNotice'));
+    } else if (next && next !== oldPrefix) {
+      onRenameFolder?.(oldPrefix, next);
+    }
+    setRenamingFolder(null);
   };
 
   const renderIcon = (path) => {
@@ -218,6 +238,48 @@ export default function FileExplorer({
         {folderNames.map((fname) => {
           const fullPrefix = prefix ? `${prefix}/${fname}` : fname;
           const isClosed = !!collapsed[fullPrefix];
+          if (renamingFolder === fullPrefix) {
+            return (
+              <div key={fullPrefix}>
+                <form
+                  onSubmit={(e) => submitRenameFolder(e, fullPrefix)}
+                  className="flex items-center gap-1 px-2 py-1"
+                  style={{ paddingInlineStart: `${8 + depth * 14}px` }}
+                >
+                  <input
+                    autoFocus
+                    dir="ltr"
+                    aria-label={t('renameFolderAria', fname)}
+                    value={renameFolderVal}
+                    onChange={(e) => setRenameFolderVal(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') setRenamingFolder(null);
+                    }}
+                    onBlur={() => setRenamingFolder(null)}
+                    className="flex-1 min-w-0 px-2 py-0.5 text-xs font-mono rounded border border-sky-500 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 outline-none"
+                  />
+                  <button
+                    type="submit"
+                    aria-label={t('confirmRenameTitle')}
+                    onMouseDown={(e) => e.preventDefault()}
+                    className="p-1 rounded bg-sky-600 text-white hover:bg-sky-500"
+                  >
+                    <Check className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={t('cancelRenameTitle')}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => setRenamingFolder(null)}
+                    className="p-1 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </form>
+                {!isClosed && renderNode(node.folders[fname], fullPrefix, depth + 1)}
+              </div>
+            );
+          }
           return (
             <div key={fullPrefix}>
               <div
@@ -230,19 +292,51 @@ export default function FileExplorer({
                   {isClosed ? <Folder className="w-3.5 h-3.5 shrink-0 text-amber-500" /> : <FolderOpen className="w-3.5 h-3.5 shrink-0 text-amber-500" />}
                   <span className="truncate font-mono">{fname}</span>
                 </div>
-                <button
-                  type="button"
-                  title={t('newFileInFolderTitle')}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setCollapsed((c) => ({ ...c, [fullPrefix]: false }));
-                    setCreating({ type: 'file', prefix: fullPrefix });
-                    setDraftName('');
-                  }}
-                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-slate-300/60 dark:hover:bg-slate-700"
-                >
-                  <FilePlus className="w-3.5 h-3.5" />
-                </button>
+                <div className="flex items-center gap-0.5 shrink-0 opacity-70 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+                  <button
+                    type="button"
+                    title={t('newFileInFolderTitle')}
+                    aria-label={t('newFileInFolderTitle')}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCollapsed((c) => ({ ...c, [fullPrefix]: false }));
+                      setCreating({ type: 'file', prefix: fullPrefix });
+                      setDraftName('');
+                    }}
+                    className="p-0.5 rounded hover:bg-slate-300/60 dark:hover:bg-slate-700"
+                  >
+                    <FilePlus className="w-3.5 h-3.5" />
+                  </button>
+                  {onRenameFolder && (
+                    <button
+                      type="button"
+                      title={t('renameFolderTitle')}
+                      aria-label={t('renameFolderAria', fname)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRenamingFolder(fullPrefix);
+                        setRenameFolderVal(fullPrefix);
+                      }}
+                      className="p-0.5 rounded hover:bg-slate-300/60 dark:hover:bg-slate-700"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                  )}
+                  {onDeleteFolder && (
+                    <button
+                      type="button"
+                      title={t('deleteFolderTitle')}
+                      aria-label={t('deleteFolderAria', fname)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteFolder(fullPrefix);
+                      }}
+                      className="p-0.5 rounded text-rose-600 dark:text-rose-400 hover:bg-rose-500/15"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
               </div>
               {!isClosed && renderNode(node.folders[fname], fullPrefix, depth + 1)}
             </div>
@@ -256,17 +350,40 @@ export default function FileExplorer({
               <form
                 key={path}
                 onSubmit={(e) => submitRename(e, path)}
-                className="px-2 py-1"
+                className="flex items-center gap-1 px-2 py-1"
                 style={{ paddingInlineStart: `${12 + depth * 14}px` }}
               >
                 <input
                   autoFocus
                   dir="ltr"
+                  aria-label={t('renameAria', name)}
                   value={renameVal}
                   onChange={(e) => setRenameVal(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setRenamingPath(null);
+                  }}
                   onBlur={() => setRenamingPath(null)}
-                  className="w-full px-2 py-1 text-xs font-mono rounded border border-sky-500 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 outline-none"
+                  className="flex-1 min-w-0 px-2 py-1 text-xs font-mono rounded border border-sky-500 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 outline-none"
                 />
+                <button
+                  type="submit"
+                  title={t('confirmRenameTitle')}
+                  aria-label={t('confirmRenameTitle')}
+                  onMouseDown={(e) => e.preventDefault()}
+                  className="p-1 rounded bg-sky-600 text-white hover:bg-sky-500 shrink-0"
+                >
+                  <Check className="w-3 h-3" />
+                </button>
+                <button
+                  type="button"
+                  title={t('cancelRenameTitle')}
+                  aria-label={t('cancelRenameTitle')}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setRenamingPath(null)}
+                  className="p-1 rounded bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200 shrink-0"
+                >
+                  <X className="w-3 h-3" />
+                </button>
               </form>
             );
           }
@@ -615,8 +732,12 @@ export default function FileExplorer({
             <input
               autoFocus
               dir="ltr"
+              aria-label={creating.type === 'folder' ? t('newFolderLabel') : t('newFileLabel', creating.prefix)}
               value={draftName}
               onChange={(e) => setDraftName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setCreating(null);
+              }}
               placeholder={creating.type === 'folder' ? 'src' : 'main.rs'}
               className="flex-1 min-w-0 px-2 py-1 text-xs font-mono rounded border border-sky-500 bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 outline-none"
             />
