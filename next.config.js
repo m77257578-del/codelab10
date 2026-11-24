@@ -1,2 +1,2 @@
 /** @type {import('next').NextConfig} */
-module.exports = { reactStrictMode: true, eslint: { ignoreDuringBuilds: true } };
+module.exports = { output: 'standalone', reactStrictMode: true, eslint: { ignoreDuringBuilds: true } };

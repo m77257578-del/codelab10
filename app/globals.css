@@ -1,4 +1,105 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-body { margin: 0; background: #0b0816; }
+
+:root {
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: 'IBM Plex Sans Arabic', 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+.font-mono,
+.cm-editor,
+.cm-scroller {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace !important;
+}
+
+/* CodeMirror IDE layout integration */
+.cm-editor {
+  height: 100%;
+  outline: none !important;
+}
+
+.cm-scroller {
+  overflow: auto;
+  line-height: 1.65;
+}
+
+/* Subtle thin scrollbars for IDE panes */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.45);
+}
+
+/* VS Code-style CodeMirror IntelliSense autocomplete menu */
+.cm-tooltip-autocomplete {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace !important;
+  overflow: hidden;
+  z-index: 45 !important;
+}
+
+.cm-tooltip-autocomplete > ul {
+  max-height: 240px !important;
+  min-width: 220px;
+  max-width: min(92vw, 380px);
+}
+
+.cm-tooltip-autocomplete > ul > li {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px !important;
+  font-size: 13px;
+  line-height: 1.35;
+  cursor: pointer;
+}
+
+@media (max-width: 767px) {
+  .cm-tooltip-autocomplete > ul > li {
+    min-height: 36px;
+    padding: 8px 12px !important;
+  }
+}
+
+.cm-completionDetail {
+  margin-left: auto !important;
+  font-size: 11px;
+  opacity: 0.72;
+  padding-left: 12px;
+}
+
+.cm-completionMatchedText {
+  text-decoration: none !important;
+  font-weight: 700;
+  color: #38bdf8;
+}
+
+.cm-tooltip-autocomplete > ul > li[aria-selected] .cm-completionMatchedText {
+  color: #ffffff;
+}
+
