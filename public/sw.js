@@ -56,10 +56,11 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Never cache OAuth, API endpoints, or dev HMR streams
+  // Never cache OAuth, API endpoints, live local previews, or dev HMR streams
   if (
     url.pathname.startsWith('/api/') ||
     url.pathname.startsWith('/auth/') ||
+    url.pathname.startsWith('/preview/') ||
     url.pathname.startsWith('/_next/webpack-hmr')
   ) {
     return;

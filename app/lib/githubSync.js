@@ -164,3 +164,126 @@ export function computeGitHubChanges(currentFiles = {}, syncedSnapshot = null) {
     totalChanges: changes.length,
   };
 }
+
+export function normalizeGitHubRepoName(raw = '') {
+  return String(raw || '')
+    .trim()
+    .replace(/\.git$/i, '')
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+export function suggestGitHubRepoName(projectName = '') {
+  const cleaned = normalizeGitHubRepoName(projectName);
+  if (cleaned && validateGitHubRepo(cleaned)) {
+    return cleaned;
+  }
+  return 'my-codelab-project';
+}
+
+export function extractMediaBase64(entry) {
+  if (!entry || typeof entry !== 'object' || !entry.__media || typeof entry.dataUrl !== 'string') {
+    return null;
+  }
+  const comma = entry.dataUrl.indexOf(',');
+  if (comma === -1) return null;
+  const meta = entry.dataUrl.slice(0, comma);
+  const body = entry.dataUrl.slice(comma + 1);
+  if (/;base64/i.test(meta)) return body.replace(/\s+/g, '');
+  try {
+    return Buffer.from(decodeURIComponent(body), 'utf8').toString('base64');
+  } catch {
+    return Buffer.from(body, 'utf8').toString('base64');
+  }
+}
+
+export function pickInitialSeedEntry(entries = []) {
+  if (!Array.isArray(entries) || entries.length === 0) return null;
+  let bestIdx = 0;
+  let bestScore = Infinity;
+  for (let i = 0; i < entries.length; i++) {
+    const item = entries[i];
+    const len = typeof item?.content === 'string' ? item.content.length : 0;
+    const isText = item?.encoding === 'utf-8';
+    const isNonEmpty = len > 0;
+    // Prefer smallest non-empty UTF-8 file so empty-repo initialization via PUT /contents is tiny and fast
+    let score = len;
+    if (!isText) score += 10_000_000;
+    if (!isNonEmpty) score += 1_000_000;
+    if (/^(readme\.md|index\.html?|package\.json)$/i.test(item?.path || '')) {
+      score = Math.max(0, score - 500);
+    }
+    if (score < bestScore) {
+      bestScore = score;
+      bestIdx = i;
+    }
+  }
+  return {
+    first: entries[bestIdx],
+    rest: entries.filter((_, idx) => idx !== bestIdx),
+  };
+}
+
+export function formatGitHubApiError({ status = 400, data = {}, phase = 'push', isPrivate = false, locale = 'ar' } = {}) {
+  const isEn = locale === 'en';
+  const rawMessage = String(data?.message || '').trim();
+  const detailMessages = Array.isArray(data?.errors)
+    ? data.errors
+        .map((e) => (typeof e === 'string' ? e : e?.message || (e?.field ? `${e.field}: ${e.code || 'invalid'}` : '')))
+        .filter(Boolean)
+    : [];
+  const combined = [rawMessage, ...detailMessages].join(' ').toLowerCase();
+
+  if (status === 401 || /bad credentials|requires authentication/i.test(combined)) {
+    return isEn
+      ? 'GitHub session expired or token is invalid. Please reconnect your GitHub account.'
+      : 'انتهت جلسة GitHub أو رمز الوصول غير صالح. يرجى إعادة ربط حسابك على GitHub.';
+  }
+
+  if (combined.includes('name already exists')) {
+    return isEn
+      ? 'A repository with this name already exists on your GitHub account. Choose a different name or link the existing repository.'
+      : 'يوجد مستودع بهذا الاسم بالفعل على حسابك في GitHub. اختر اسماً مختلفاً أو اربط المستودع القائم.';
+  }
+
+  if (status === 403 || combined.includes('resource not accessible') || combined.includes('insufficient') || combined.includes('scope')) {
+    if (phase === 'createRepo') {
+      if (isPrivate) {
+        return isEn
+          ? 'Your GitHub token does not have permission to create a private repository. Grant full "repo" scope (or "Administration: Read & write" for fine-grained tokens), or create a public repository.'
+          : 'رمز GitHub الحالي لا يملك صلاحية إنشاء مستودع خاص. فعّل صلاحية "repo" الكاملة (أو Administration: Read & write)، أو أنشئ مستودعاً عاماً.';
+      }
+      return isEn
+        ? 'Your GitHub token lacks permission to create repositories. Make sure the token has "repo" scope (Classic PAT) or "Administration + Contents: Read & write" (Fine-grained PAT).'
+        : 'رمز GitHub الحالي لا يملك صلاحية إنشاء مستودعات. تأكد من تفعيل صلاحية "repo" (في Classic PAT) أو "Administration و Contents: Read & write" (في Fine-grained PAT).';
+    }
+    return isEn
+      ? 'Your GitHub token lacks write permission ("repo" or "Contents: Read & write") for this repository.'
+      : 'رمز GitHub الحالي لا يملك صلاحية الكتابة ("repo" أو "Contents: Read & write") على هذا المستودع.';
+  }
+
+  if (status === 404) {
+    if (phase === 'createRepo') {
+      return isEn
+        ? 'Could not create or access the new repository on GitHub. Check that your token has "repo" creation permission.'
+        : 'تعذر إنشاء أو الوصول إلى المستودع الجديد على GitHub. تأكد من أن رمز الوصول يمتلك صلاحية إنشاء المستودعات (repo).';
+    }
+    return isEn
+      ? 'Repository or branch was not found on GitHub, or your token does not have access to it.'
+      : 'المستودع أو الفرع غير موجود على GitHub، أو لا يملك رمزك صلاحية الوصول إليه.';
+  }
+
+  if (status === 422 && detailMessages.length > 0) {
+    const detailsText = detailMessages.join(' · ');
+    return isEn
+      ? `GitHub rejected the request: ${detailsText}`
+      : `رفض GitHub الطلب: ${detailsText}`;
+  }
+
+  if (rawMessage) {
+    return rawMessage;
+  }
+
+  return isEn ? 'An error occurred while pushing to GitHub.' : 'حدث خطأ أثناء الرفع إلى GitHub.';
+}
+

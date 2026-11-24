@@ -550,6 +550,9 @@ export default function CodeEditorPane({
         },
       };
     }
+    return () => {
+      if (editorRefOut) editorRefOut.current = null;
+    };
   }, [editorRefOut]);
 
   return (

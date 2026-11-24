@@ -139,7 +139,7 @@ export default function IntegratedTerminal({
 
     if (e.key === 'Tab') {
       e.preventDefault();
-      const candidates = getTerminalCompletions(input, files, cwd);
+      const candidates = getTerminalCompletions(input, files, cwd, virtualDirs);
       if (candidates.length === 1) {
         const match = candidates[0];
         const parts = input.split(/(\s+)/);

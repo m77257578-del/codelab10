@@ -31,7 +31,7 @@ import { useI18n } from '../lib/LocaleContext';
 
 function buildTree(paths) {
   const root = { folders: {}, files: [] };
-  for (const path of paths.sort((a, b) => a.localeCompare(b))) {
+  for (const path of [...paths].sort((a, b) => a.localeCompare(b))) {
     const parts = path.split('/').filter(Boolean);
     let node = root;
     for (let i = 0; i < parts.length - 1; i++) {
@@ -283,15 +283,19 @@ export default function FileExplorer({
           return (
             <div key={fullPrefix}>
               <div
-                className="group flex items-center justify-between gap-1 px-2 py-1.5 text-xs rounded-md cursor-pointer text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/70"
+                className="group flex items-center justify-between gap-1 px-2 py-1 text-xs rounded-md text-slate-600 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/70"
                 style={{ paddingInlineStart: `${8 + depth * 14}px` }}
-                onClick={() => setCollapsed((c) => ({ ...c, [fullPrefix]: !c[fullPrefix] }))}
               >
-                <div className="flex items-center gap-1.5 min-w-0">
+                <button
+                  type="button"
+                  onClick={() => setCollapsed((c) => ({ ...c, [fullPrefix]: !c[fullPrefix] }))}
+                  aria-expanded={!isClosed}
+                  className="flex-1 flex items-center gap-1.5 min-w-0 py-0.5 text-start cursor-pointer"
+                >
                   {isClosed ? <ChevronRight className="w-3.5 h-3.5 shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 shrink-0" />}
                   {isClosed ? <Folder className="w-3.5 h-3.5 shrink-0 text-amber-500" /> : <FolderOpen className="w-3.5 h-3.5 shrink-0 text-amber-500" />}
                   <span className="truncate font-mono">{fname}</span>
-                </div>
+                </button>
                 <div className="flex items-center gap-0.5 shrink-0 opacity-70 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
                   <button
                     type="button"
@@ -520,6 +524,13 @@ export default function FileExplorer({
                 dir="ltr"
                 value={projectDraft}
                 onChange={(e) => setProjectDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setProjectDraft(projectName || 'my-codelab-project');
+                    setEditingProject(false);
+                  }
+                }}
                 onBlur={() => {
                   onRenameProject?.(projectDraft);
                   setEditingProject(false);

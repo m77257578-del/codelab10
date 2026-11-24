@@ -176,3 +176,17 @@ test('buildWebPreviewDoc auto-links unlinked CSS and script when HTML lacks <lin
   assert.equal((linkedDoc.match(/data-file="styles\.css"/g) || []).length, 1);
 });
 
+test('buildWebPreviewDoc includes Tailwind JIT runtime, CSS Module exports, virtual fetch assets, and baseHref without HTML', () => {
+  const files = {
+    'Card.module.css': `.panel { border-radius: 16px; }\n.title_accent { color: #38bdf8; }`,
+    'data/info.json': `{"status":"live"}`,
+    'App.jsx': `import styles from './Card.module.css'; export default function App() { return <div className="bg-gradient-to-br from-indigo-600 to-purple-700 p-6 rounded-2xl"><h1 className={styles.title_accent}>Pro</h1></div>; }`,
+  };
+  const doc = buildWebPreviewDoc(files, 'App.jsx', false, 'en', { baseHref: '/preview/demo-123/' });
+  assert.match(doc, /<base href="\/preview\/demo-123\/">/);
+  assert.match(doc, /data-codelab-tw-jit="true"/);
+  assert.match(doc, /"title_accent":"title_accent"/);
+  assert.match(doc, /"data\/info\.json"/);
+});
+
+

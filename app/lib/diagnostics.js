@@ -1,5 +1,119 @@
 // On-device diagnostics, Arabic runtime error explainer, and code formatter
 
+import { transform as sucraseTransform } from 'sucrase';
+
+function maskCommentsAndStringsPreserveLines(code, lang) {
+  const out = [];
+  let i = 0;
+  const n = code.length;
+  const isPy = lang === 'python';
+  const isCss = lang === 'css' || lang === 'scss';
+  const isJsLike = ['js', 'jsx', 'ts', 'tsx'].includes(lang);
+
+  while (i < n) {
+    const ch = code[i];
+    const next = code[i + 1];
+
+    // Block comments /* ... */
+    if (!isPy && ch === '/' && next === '*') {
+      out.push(' ', ' ');
+      i += 2;
+      while (i < n && !(code[i] === '*' && code[i + 1] === '/')) {
+        out.push(code[i] === '\n' ? '\n' : ' ');
+        i++;
+      }
+      if (i < n) {
+        out.push(' ', ' ');
+        i += 2;
+      }
+      continue;
+    }
+
+    // Line comments (# in Python/PHP, // in C-like/JS/SCSS)
+    if ((isPy && ch === '#') || (!isCss && ch === '/' && next === '/') || (lang === 'php' && ch === '#')) {
+      while (i < n && code[i] !== '\n') {
+        out.push(' ');
+        i++;
+      }
+      continue;
+    }
+
+    // Python triple-quoted strings ("""...""" or '''...''')
+    if (isPy && ((ch === '"' && code[i + 1] === '"' && code[i + 2] === '"') || (ch === "'" && code[i + 1] === "'" && code[i + 2] === "'"))) {
+      const q = code.slice(i, i + 3);
+      out.push('S', ' ', ' ');
+      i += 3;
+      while (i < n && code.slice(i, i + 3) !== q) {
+        if (code[i] === '\\' && i + 1 < n) {
+          out.push(' ', code[i + 1] === '\n' ? '\n' : ' ');
+          i += 2;
+        } else {
+          out.push(code[i] === '\n' ? '\n' : ' ');
+          i++;
+        }
+      }
+      if (i < n) {
+        out.push(' ', ' ', ' ');
+        i += 3;
+      }
+      continue;
+    }
+
+    // JS/TS template literals `...` (can span multiple lines)
+    if (isJsLike && ch === '`') {
+      out.push('S');
+      i++;
+      while (i < n && code[i] !== '`') {
+        if (code[i] === '\\' && i + 1 < n) {
+          out.push(' ', code[i + 1] === '\n' ? '\n' : ' ');
+          i += 2;
+        } else {
+          out.push(code[i] === '\n' ? '\n' : ' ');
+          i++;
+        }
+      }
+      if (i < n) {
+        out.push(' ');
+        i++;
+      }
+      continue;
+    }
+
+    // Single-line strings "..." or '...'
+    if (ch === '"' || ch === "'") {
+      const q = ch;
+      let j = i + 1;
+      let closed = false;
+      while (j < n && code[j] !== '\n') {
+        if (code[j] === '\\' && j + 1 < n && code[j + 1] !== '\n') {
+          j += 2;
+          continue;
+        }
+        if (code[j] === q) {
+          closed = true;
+          break;
+        }
+        j++;
+      }
+      if (closed) {
+        out.push('S');
+        for (let k = i + 1; k <= j; k++) out.push(' ');
+        i = j + 1;
+        continue;
+      }
+      // Unclosed on this line: preserve quote so line diagnostic catches it
+      out.push(ch);
+      i++;
+      continue;
+    }
+
+    out.push(ch);
+    i++;
+  }
+
+  return out.join('');
+}
+
 export function diagnose(code, lang, locale = 'ar') {
   const isEn = locale === 'en';
   const d = [];
@@ -107,17 +221,15 @@ export function diagnose(code, lang, locale = 'ar') {
   const BRACE_LANGS = new Set(['js', 'jsx', 'ts', 'tsx', 'css', 'scss', 'python', 'c', 'cpp', 'java', 'csharp', 'kotlin', 'swift', 'go', 'rust', 'php', 'dart', 'scala']);
   if (!BRACE_LANGS.has(lang)) return d;
 
+  const masked = maskCommentsAndStringsPreserveLines(code, lang);
   const lines = code.split('\n');
+  const maskedLines = masked.split('\n');
   const st = [];
   const pr = { ')': '(', ']': '[', '}': '{' };
-  const nz = lines.map((l, i) => [l, i]).filter(([l]) => l.trim());
+  const nz = maskedLines.map((l, i) => [l, i]).filter(([l]) => l.trim());
 
-  lines.forEach((ln, i) => {
-    let s = ln.replace(/`[^`]*`|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, 'S');
-    if (lang === 'python') s = s.replace(/#.*/, '');
-    else if (lang === 'css') s = s.replace(/\/\*[\s\S]*?\*\//g, '');
-    else s = s.replace(/\/\/.*/, '');
-
+  maskedLines.forEach((s, i) => {
+    const ln = lines[i] || '';
     if (/["']/.test(s) && !['js', 'jsx', 'ts', 'tsx', 'rust', 'php'].includes(lang)) {
       add(
         i + 1,
@@ -152,7 +264,7 @@ export function diagnose(code, lang, locale = 'ar') {
       if (/^(if|while|elif)\b[^=]*[^=!<>]=[^=]/.test(tr)) {
         add(i + 1, isEn ? 'Used assignment "=" instead of comparison "=="' : 'استخدمت = (إسناد) بدل == (مقارنة)', isEn ? 'Replace = with ==' : 'استبدل = بـ ==');
       }
-      if (pv && tr && pv[0].trim().endsWith(':') && ln.match(/^\s*/)[0].length <= pv[0].match(/^\s*/)[0].length) {
+      if (pv && tr && pv[0].trim().endsWith(':') && ln.match(/^\s*/)[0].length <= lines[pv[1]].match(/^\s*/)[0].length) {
         add(
           i + 1,
           isEn ? 'Line after ":" must be indented' : 'السطر بعد النقطتين يجب أن يكون مُزاحاً للداخل',
@@ -160,7 +272,8 @@ export function diagnose(code, lang, locale = 'ar') {
         );
       }
     } else if (lang === 'css') {
-      if (/^[\w-]+\s*:\s*[^;{}]+$/.test(tr)) {
+      const looksLikeNextDeclOrClose = !nx || nx.startsWith('}') || /^[\w-]+\s*:/.test(nx);
+      if (/^[\w-]+\s*:\s*[^;{}]+$/.test(tr) && !nx.startsWith('{') && !/[,(]$/.test(tr) && looksLikeNextDeclOrClose) {
         add(i + 1, isEn ? 'Missing ";" at end of CSS property' : 'ينقص ; في نهاية الخاصية', isEn ? 'Add ; at the end of the line' : 'أضف ; في نهاية السطر');
       }
       if (/^[\w-]+\s+[^:{};]+;$/.test(tr)) {
@@ -197,32 +310,28 @@ export function diagnose(code, lang, locale = 'ar') {
       isEn ? 'Add the matching closing bracket' : 'أضف قوس الإغلاق المناسب'
     )
   );
-  if (lang === 'cpp' && /\bcout\b/.test(code) && !/#include\s*<iostream>/.test(code)) {
+  if (lang === 'cpp' && /\bcout\b/.test(masked) && !/#include\s*<iostream>/.test(code)) {
     add(1, isEn ? 'Using cout without <iostream>' : 'تستخدم cout بدون تضمين المكتبة', isEn ? 'Add #include <iostream> at the top' : 'أضف #include <iostream> في أول الملف');
   }
-  if (lang === 'java' && !/class\s+\w+/.test(code)) {
+  if (lang === 'java' && !/\bclass\s+\w+/.test(masked)) {
     add(1, isEn ? 'No class declaration found' : 'لا يوجد class', isEn ? 'Wrap Java code inside a class' : 'كل كود جافا يجب أن يكون داخل class');
   }
-  if (lang === 'js' && !d.length) {
+  if (['js', 'jsx', 'ts', 'tsx'].includes(lang) && !d.length) {
     try {
-      new Function(code);
+      const transforms = lang === 'js' || lang === 'jsx' ? ['jsx'] : ['typescript', 'jsx'];
+      sucraseTransform(code, { transforms });
     } catch (e) {
-      const m = e.message;
-      if (!/Cannot use import statement|Unexpected token 'export'/.test(m)) {
-        add(
-          1,
-          isEn
-            ? m
-            : /end of input/.test(m)
-              ? 'الكود ناقص: قوس أو } لم يُغلق'
-              : /missing \)/.test(m)
-                ? 'قوس ) ناقص'
-                : /Unexpected token|Invalid or unexpected/.test(m)
-                  ? 'رمز غير متوقع (فاصلة أو قوس أو علامة تنصيص ناقصة أو زائدة)'
-                  : m,
-          isEn ? 'Check the last lines for unclosed brackets or quotes' : 'راجع الأسطر الأخيرة وتأكد من اكتمال الأقواس والنصوص'
-        );
-      }
+      const m = String(e?.message || e);
+      const errLine = Number(e?.loc?.line) || 1;
+      add(
+        errLine,
+        isEn
+          ? m
+          : /end of input|Unexpected token|Unterminated/i.test(m)
+            ? 'خطأ في بناء الجملة (قوس أو فاصلة أو علامة تنصيص ناقصة أو زائدة)'
+            : m,
+        isEn ? 'Check syntax, brackets, and quotes near this line' : 'راجع السطر المحدد وتأكد من اكتمال الأقواس والنصوص'
+      );
     }
   }
   return d;
@@ -262,11 +371,18 @@ export function formatCode(code, lang, tabSize = 2) {
     }
   }
   if (lang === 'css') {
-    const raw = code
+    const protectedItems = [];
+    const safeCss = code
       .replace(/\r/g, '')
+      .replace(/url\(\s*(?:(["'])[\s\S]*?\1|[^)]+)\s*\)|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/gi, (m) => {
+        protectedItems.push(m);
+        return `__CSS_TOK_${protectedItems.length - 1}__`;
+      });
+    const raw = safeCss
       .replace(/\s*\{\s*/g, ' {\n')
       .replace(/\s*;\s*/g, ';\n')
-      .replace(/\s*\}\s*/g, '\n}\n\n');
+      .replace(/\s*\}\s*/g, '\n}\n\n')
+      .replace(/__CSS_TOK_(\d+)__/g, (_, idx) => protectedItems[Number(idx)] ?? '');
     let depth = 0;
     return raw
       .split('\n')

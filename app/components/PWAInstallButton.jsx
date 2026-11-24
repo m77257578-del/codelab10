@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   CheckCircle2,
   Download,
@@ -18,6 +18,15 @@ export function PWAInstallButton() {
   const { t } = useI18n();
   const [guideOpen, setGuideOpen] = useState(false);
   const [installing, setInstalling] = useState(false);
+
+  useEffect(() => {
+    if (!guideOpen) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setGuideOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [guideOpen]);
 
   // Automatically hide once running in installed standalone app mode
   if (isInstalled) {

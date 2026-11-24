@@ -20,9 +20,25 @@ import {
   PlusCircle,
   CheckCircle2,
 } from 'lucide-react';
-import { sanitizeProjectName } from '../lib/storage';
-import { buildGitHubSnapshot, parseRepoSlug, validateGitHubBranch } from '../lib/githubSync';
+import {
+  buildGitHubSnapshot,
+  normalizeGitHubRepoName,
+  parseRepoSlug,
+  suggestGitHubRepoName,
+  validateGitHubBranch,
+  validateGitHubRepo,
+} from '../lib/githubSync';
 import { useI18n } from '../lib/LocaleContext';
+
+async function readJsonSafe(res) {
+  const text = await res.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {};
+  }
+}
 
 export default function GitHubPushModal({
   open,
@@ -35,6 +51,7 @@ export default function GitHubPushModal({
   changes,
   onConnectGitHub,
   onDisconnectGitHub,
+  onSessionExpired,
   onConnectSuccess,
   onLinkRepository,
   onPullRepository,
@@ -47,7 +64,7 @@ export default function GitHubPushModal({
   const [choosingRepo, setChoosingRepo] = useState(false);
 
   // Create-new-repo state
-  const [repoName, setRepoName] = useState(sanitizeProjectName(projectName));
+  const [repoName, setRepoName] = useState(suggestGitHubRepoName(projectName));
   const [description, setDescription] = useState('Built with CodeLab IDE');
   const [isPrivate, setIsPrivate] = useState(false);
 
@@ -74,19 +91,29 @@ export default function GitHubPushModal({
   const [result, setResult] = useState(null);
   const [copiedUri, setCopiedUri] = useState(false);
 
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose?.();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
+
   const handleTokenLogin = async (e) => {
     e.preventDefault();
     const token = patInput.trim();
     if (!token || patLoading) return;
     setPatLoading(true);
     setPatError(null);
+    setErrorMsg(null);
     try {
       const res = await fetch('/api/github/token-auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token }),
+        body: JSON.stringify({ token, locale }),
       });
-      const data = await res.json();
+      const data = await readJsonSafe(res);
       if (!res.ok || !data?.sessionToken) {
         setPatError(data?.error || t('tokenLoginError'));
       } else {
@@ -110,7 +137,12 @@ export default function GitHubPushModal({
       const res = await fetch('/api/github/repos', {
         headers: { Authorization: `Bearer ${githubSessionToken}` },
       });
-      const data = await res.json();
+      const data = await readJsonSafe(res);
+      if (res.status === 401) {
+        setPatError(data?.error || t('sessionExpiredError'));
+        onSessionExpired?.();
+        return;
+      }
       if (!res.ok) {
         setErrorMsg(data?.error || t('reposLoadError'));
       } else {
@@ -121,7 +153,7 @@ export default function GitHubPushModal({
     } finally {
       setLoadingRepos(false);
     }
-  }, [githubSessionToken, t]);
+  }, [githubSessionToken, onSessionExpired, t]);
 
   const fetchLinkedBranches = useCallback(async () => {
     if (!githubSessionToken || !githubLink?.owner || !githubLink?.name) return;
@@ -135,19 +167,25 @@ export default function GitHubPushModal({
       const res = await fetch(`/api/github/pull?${params.toString()}`, {
         headers: { Authorization: `Bearer ${githubSessionToken}` },
       });
+      if (res.status === 401) {
+        setPatError(t('sessionExpiredError'));
+        onSessionExpired?.();
+        return;
+      }
       if (!res.ok) return;
-      const data = await res.json();
+      const data = await readJsonSafe(res);
       if (Array.isArray(data.branches) && data.branches.length > 0) {
         setAvailableBranches(data.branches);
       }
     } catch {}
-  }, [githubSessionToken, githubLink?.owner, githubLink?.name, githubLink?.branch]);
+  }, [githubSessionToken, githubLink?.owner, githubLink?.name, githubLink?.branch, onSessionExpired, t]);
 
   // Reset modal transient UI only when modal opens
   useEffect(() => {
     if (!open) return;
-    setRepoName(sanitizeProjectName(projectName));
+    setRepoName(suggestGitHubRepoName(projectName));
     setErrorMsg(null);
+    setPatError(null);
     setResult(null);
     setForcePushAll(false);
     setChoosingRepo(false);
@@ -156,7 +194,7 @@ export default function GitHubPushModal({
       try {
         const res = await fetch('/api/github/auth');
         if (!res.ok) return;
-        const data = await res.json();
+        const data = await readJsonSafe(res);
         setOauthConfig({
           checked: true,
           configured: Boolean(data.configured),
@@ -282,7 +320,12 @@ export default function GitHubPushModal({
       const res = await fetch(`/api/github/pull?${params.toString()}`, {
         headers: { Authorization: `Bearer ${githubSessionToken}` },
       });
-      const data = await res.json();
+      const data = await readJsonSafe(res);
+      if (res.status === 401) {
+        setPatError(data?.error || t('sessionExpiredError'));
+        onSessionExpired?.();
+        return;
+      }
       if (!res.ok) {
         setErrorMsg(data?.error || t('pullError'));
         return;
@@ -334,7 +377,12 @@ export default function GitHubPushModal({
       const res = await fetch(`/api/github/pull?${params.toString()}`, {
         headers: { Authorization: `Bearer ${githubSessionToken}` },
       });
-      const data = await res.json();
+      const data = await readJsonSafe(res);
+      if (res.status === 401) {
+        setPatError(data?.error || t('sessionExpiredError'));
+        onSessionExpired?.();
+        return;
+      }
       if (!res.ok) {
         setErrorMsg(data?.error || t('pullError'));
         return;
@@ -370,7 +418,18 @@ export default function GitHubPushModal({
       return;
     }
 
-    if (selectedItemsList.length === 0) return;
+    if (creatingNew) {
+      const cleanedNewRepo = normalizeGitHubRepoName(repoName);
+      if (!validateGitHubRepo(cleanedNewRepo)) {
+        setErrorMsg(t('repoNameInvalidError'));
+        return;
+      }
+      if (Object.keys(files || {}).length === 0) {
+        return;
+      }
+    } else if (selectedItemsList.length === 0) {
+      return;
+    }
 
     setErrorMsg(null);
     setResult(null);
@@ -379,23 +438,37 @@ export default function GitHubPushModal({
     try {
       const filesToPush = {};
       const deletedToPush = [];
-      for (const item of selectedItemsList) {
-        if (item.status === 'deleted') {
-          deletedToPush.push(item.path);
-        } else if (files[item.path] !== undefined) {
-          filesToPush[item.path] = files[item.path];
+      let pushedItemsForSync = selectedItemsList;
+
+      if (creatingNew) {
+        for (const [path, content] of Object.entries(files || {})) {
+          filesToPush[path] = content;
+        }
+        pushedItemsForSync = Object.keys(filesToPush)
+          .sort((a, b) => a.localeCompare(b))
+          .map((path) => ({ path, status: 'added' }));
+      } else {
+        for (const item of selectedItemsList) {
+          if (item.status === 'deleted') {
+            deletedToPush.push(item.path);
+          } else if (files[item.path] !== undefined) {
+            filesToPush[item.path] = files[item.path];
+          }
         }
       }
 
+      const cleanedNewRepo = normalizeGitHubRepoName(repoName);
       const payload = creatingNew
         ? {
             owner: githubUser?.login,
-            repoName,
+            repoName: cleanedNewRepo,
             description,
             isPrivate,
+            createNew: true,
             createIfMissing: true,
             commitMessage,
             files: filesToPush,
+            locale,
           }
         : {
             owner: githubLink.owner,
@@ -405,6 +478,7 @@ export default function GitHubPushModal({
             commitMessage,
             files: filesToPush,
             deletedPaths: deletedToPush,
+            locale,
           };
 
       const res = await fetch('/api/github/push', {
@@ -415,15 +489,27 @@ export default function GitHubPushModal({
         },
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
+      const data = await readJsonSafe(res);
+
+      if (res.status === 401) {
+        setPatError(data?.error || t('sessionExpiredError'));
+        onSessionExpired?.();
+        return;
+      }
+
       if (!res.ok) {
-        setErrorMsg(data?.error || t('pushError'));
+        if (res.status === 413) {
+          setErrorMsg(t('payloadTooLargeError'));
+        } else {
+          setErrorMsg(data?.error || t('pushError'));
+        }
       } else {
         setResult(data);
         setForcePushAll(false);
+        setChoosingRepo(false);
         onPushSuccess?.({
           ...data,
-          pushedItems: selectedItemsList,
+          pushedItems: pushedItemsForSync,
         });
       }
     } catch {
@@ -510,9 +596,29 @@ export default function GitHubPushModal({
                     <button
                       type="button"
                       onClick={async () => {
-                        await navigator.clipboard?.writeText(oauthConfig.redirectUri);
-                        setCopiedUri(true);
-                        setTimeout(() => setCopiedUri(false), 1500);
+                        let copied = false;
+                        try {
+                          if (navigator.clipboard?.writeText) {
+                            await navigator.clipboard.writeText(oauthConfig.redirectUri);
+                            copied = true;
+                          }
+                        } catch {}
+                        if (!copied && typeof document !== 'undefined') {
+                          try {
+                            const ta = document.createElement('textarea');
+                            ta.value = oauthConfig.redirectUri;
+                            ta.style.position = 'fixed';
+                            ta.style.opacity = '0';
+                            document.body.appendChild(ta);
+                            ta.select();
+                            copied = document.execCommand('copy');
+                            document.body.removeChild(ta);
+                          } catch {}
+                        }
+                        if (copied) {
+                          setCopiedUri(true);
+                          setTimeout(() => setCopiedUri(false), 1500);
+                        }
                       }}
                       className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-800"
                     >
@@ -550,6 +656,7 @@ export default function GitHubPushModal({
                     type="password"
                     required
                     dir="ltr"
+                    data-testid="github-pat-input"
                     value={patInput}
                     onChange={(e) => setPatInput(e.target.value)}
                     placeholder={t('tokenPlaceholder')}
@@ -558,13 +665,17 @@ export default function GitHubPushModal({
                 </div>
 
                 {patError && (
-                  <div className="text-xs text-rose-600 dark:text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">
+                  <div
+                    data-testid="github-pat-error"
+                    className="text-xs text-rose-600 dark:text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2"
+                  >
                     {patError}
                   </div>
                 )}
 
                 <button
                   type="submit"
+                  data-testid="github-pat-submit"
                   disabled={patLoading || !patInput.trim()}
                   className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 text-slate-800 dark:text-slate-100 text-xs font-semibold transition-colors"
                 >
@@ -792,13 +903,19 @@ export default function GitHubPushModal({
                   </div>
 
                   {errorMsg && (
-                    <div className="text-xs text-rose-600 dark:text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">
+                    <div
+                      data-testid="github-push-error"
+                      className="text-xs text-rose-600 dark:text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2"
+                    >
                       {errorMsg}
                     </div>
                   )}
 
                   {result && (
-                    <div className="p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-xs text-emerald-800 dark:text-emerald-200 space-y-2">
+                    <div
+                      data-testid="github-push-success"
+                      className="p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-xs text-emerald-800 dark:text-emerald-200 space-y-2"
+                    >
                       <div className="font-semibold">
                         {t('uploadSuccess', (result.filesCount || 0) + (result.deletedCount || 0))}
                       </div>
@@ -846,6 +963,7 @@ export default function GitHubPushModal({
                   <div className="flex items-center gap-1 p-1 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
                     <button
                       type="button"
+                      data-testid="github-tab-link"
                       onClick={() => {
                         setModeTab('link');
                         setErrorMsg(null);
@@ -861,6 +979,7 @@ export default function GitHubPushModal({
                     </button>
                     <button
                       type="button"
+                      data-testid="github-tab-create"
                       onClick={() => {
                         setModeTab('create');
                         setErrorMsg(null);
@@ -1010,13 +1129,17 @@ export default function GitHubPushModal({
                         <input
                           required
                           dir="ltr"
+                          data-testid="github-create-repo-input"
                           value={repoName}
-                          onChange={(e) => setRepoName(e.target.value)}
+                          onChange={(e) => {
+                            setRepoName(e.target.value);
+                            if (errorMsg) setErrorMsg(null);
+                          }}
                           placeholder="my-codelab-project"
                           className="w-full px-3 py-2 text-sm font-mono rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 outline-none focus:border-sky-500"
                         />
                         <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 font-mono" dir="ltr">
-                          github.com/{githubUser?.login}/{repoName.replace(/[^a-zA-Z0-9._-]+/g, '-') || '...'}
+                          github.com/{githubUser?.login}/{normalizeGitHubRepoName(repoName) || '...'}
                         </p>
                       </div>
 
@@ -1071,13 +1194,28 @@ export default function GitHubPushModal({
                       </div>
 
                       {errorMsg && (
-                        <div className="text-xs text-rose-600 dark:text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">
+                        <div
+                          data-testid="github-push-error"
+                          className="text-xs text-rose-600 dark:text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2"
+                        >
                           {errorMsg}
+                        </div>
+                      )}
+
+                      {result && (
+                        <div
+                          data-testid="github-push-success"
+                          className="p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-xs text-emerald-800 dark:text-emerald-200 space-y-2"
+                        >
+                          <div className="font-semibold">
+                            {t('uploadSuccess', (result.filesCount || 0) + (result.deletedCount || 0))}
+                          </div>
                         </div>
                       )}
 
                       <button
                         type="submit"
+                        data-testid="github-create-submit"
                         disabled={pushing || Object.keys(files).length === 0}
                         className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
                       >

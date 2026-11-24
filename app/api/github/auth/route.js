@@ -2,20 +2,15 @@
 
 import crypto from 'node:crypto';
 import { signState } from '../../../lib/serverCrypto';
+import { resolveRequestOrigin } from '../../../lib/githubPushService';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function getAppBaseUrl(req) {
-  const fromEnv = (process.env.APP_URL || '').trim().replace(/\/+$/, '');
-  if (fromEnv) return fromEnv;
-  return new URL(req.url).origin;
-}
-
 export async function GET(req) {
   const clientId = (process.env.GITHUB_CLIENT_ID || '').trim();
   const clientSecret = (process.env.GITHUB_CLIENT_SECRET || '').trim();
-  const baseUrl = getAppBaseUrl(req);
+  const baseUrl = resolveRequestOrigin(req);
   const redirectUri = `${baseUrl}/auth/callback`;
 
   if (!clientId || !clientSecret) {

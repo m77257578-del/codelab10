@@ -162,6 +162,8 @@ export default function CodeLabIDE() {
   const [previewRev, setPreviewRev] = useState(0);
   const [previewViewport, setPreviewViewport] = useState('desktop'); // 'desktop' | 'tablet' | 'mobile'
   const [previewFullscreen, setPreviewFullscreen] = useState(false);
+  const [previewToken, setPreviewToken] = useState('live');
+  const [lastExecResult, setLastExecResult] = useState(null);
   const [running, setRunning] = useState(false);
   const [notice, setNotice] = useState(null);
 
@@ -225,6 +227,29 @@ export default function CodeLabIDE() {
     noticeTimerRef.current = setTimeout(() => setNotice(null), 2600);
   }, []);
 
+  const copyTextSafely = useCallback(async (text) => {
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch {}
+    if (typeof document !== 'undefined') {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = String(text ?? '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+      } catch {}
+    }
+    return false;
+  }, []);
+
   const handleSetLocale = useCallback(
     (nextLocale) => {
       const normalized = normalizeLocale(nextLocale);
@@ -286,7 +311,15 @@ export default function CodeLabIDE() {
               } catch {}
             }
             if (!candidateGroups) {
-              const validTabs = savedTabs ? JSON.parse(savedTabs).filter((t) => loadedFiles[t] !== undefined) : [];
+              let validTabs = [];
+              if (savedTabs) {
+                try {
+                  const parsedTabs = JSON.parse(savedTabs);
+                  if (Array.isArray(parsedTabs)) {
+                    validTabs = parsedTabs.filter((t) => loadedFiles[t] !== undefined);
+                  }
+                } catch {}
+              }
               const fallbackTabs = validTabs.length ? validTabs : [keys[0]];
               const fallbackActive = savedActive && loadedFiles[savedActive] !== undefined ? savedActive : fallbackTabs[0];
               candidateGroups = createInitialGroups(fallbackTabs, fallbackActive).groups;
@@ -303,8 +336,13 @@ export default function CodeLabIDE() {
 
         const narrow = typeof window !== 'undefined' && window.innerWidth < 768;
         const tablet = typeof window !== 'undefined' && window.innerWidth < 1024;
+        let parsedPrefs = null;
         if (savedPrefs) {
-          const parsedPrefs = JSON.parse(savedPrefs);
+          try {
+            parsedPrefs = JSON.parse(savedPrefs);
+          } catch {}
+        }
+        if (parsedPrefs && typeof parsedPrefs === 'object') {
           setPrefs((prev) => ({
             ...prev,
             ...parsedPrefs,
@@ -341,7 +379,17 @@ export default function CodeLabIDE() {
     const syncViewport = () => {
       const w = window.innerWidth;
       const mobile = w < 768;
+      const tablet = w < 1024;
       setIsMobile(mobile);
+      if (mobile) {
+        setPrefs((p) =>
+          p.showExplorer && p.showPreview
+            ? { ...p, showExplorer: false, showPreview: false }
+            : p
+        );
+      } else if (tablet) {
+        setPrefs((p) => (p.showExplorer && p.showPreview ? { ...p, showPreview: false } : p));
+      }
       if (window.visualViewport) {
         setViewportHeight(mobile ? Math.round(window.visualViewport.height) : null);
       } else {
@@ -456,6 +504,68 @@ export default function CodeLabIDE() {
     [files, activeFile]
   );
 
+  const previewId = useMemo(
+    () =>
+      `${sanitizeProjectName(projectName)}-${previewToken}`
+        .replace(/[^a-zA-Z0-9._-]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 72) || 'codelab-live',
+    [projectName, previewToken]
+  );
+
+  const [previewOrigin, setPreviewOrigin] = useState('');
+
+  const localPreviewUrl = useMemo(() => {
+    const path = `/preview/${previewId}`;
+    return previewOrigin ? `${previewOrigin}${path}` : path;
+  }, [previewId, previewOrigin]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location?.origin) {
+      setPreviewOrigin(window.location.origin);
+    }
+    try {
+      let tok = localStorage.getItem('codelab_preview_token_v1');
+      if (!tok || !/^[a-z0-9]{4,12}$/i.test(tok)) {
+        tok = Math.random().toString(36).slice(2, 6);
+        localStorage.setItem('codelab_preview_token_v1', tok);
+      }
+      setPreviewToken(tok);
+    } catch {}
+  }, []);
+
+  const syncPreviewSnapshot = useCallback(
+    async (overrideFiles, overrideActiveFile, overrideExecResult) => {
+      try {
+        const targetFiles = overrideFiles || files;
+        const targetActive = overrideActiveFile !== undefined ? overrideActiveFile : activeFile;
+        const targetExec = overrideExecResult !== undefined ? overrideExecResult : lastExecResult;
+        const html = buildWebPreviewDoc(targetFiles, targetActive, false, locale, {
+          baseHref: `/preview/${previewId}/`,
+          execResult: targetExec,
+        });
+        await fetch('/api/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: previewId,
+            html,
+            files: targetFiles,
+            activeFile: targetActive,
+            projectName,
+            locale,
+          }),
+        });
+        if (typeof BroadcastChannel !== 'undefined') {
+          const ch = new BroadcastChannel('codelab-preview-sync');
+          ch.postMessage({ type: 'synced', id: previewId });
+          ch.close();
+        }
+      } catch {}
+    },
+    [files, activeFile, lastExecResult, locale, previewId, projectName]
+  );
+
   // Diagnostics across code files
   const problems = useMemo(() => {
     const list = [];
@@ -518,9 +628,13 @@ export default function CodeLabIDE() {
 
       if (isWebEntry) {
         if (!silent) setConsoleLogs([]);
-        const doc = buildWebPreviewDoc(files, activeFile, true, locale);
+        setLastExecResult(null);
+        const doc = buildWebPreviewDoc(files, activeFile, true, locale, {
+          baseHref: `/preview/${previewId}/`,
+        });
         setPreviewDoc(doc);
         setPreviewRev((n) => n + 1);
+        syncPreviewSnapshot(files, activeFile, null);
         if (!silent) {
           setFocusMode(false);
           editorApiRef.current?.blur();
@@ -571,10 +685,17 @@ export default function CodeLabIDE() {
 
       const res = await runCode(activeLang, activeCode, files, locale);
       setRunning(false);
+      setLastExecResult(res);
 
-      // Sync live execution output to Preview pane as well so Preview always stays current
-      setPreviewDoc(buildWebPreviewDoc(files, activeFile, true, locale, { execResult: res }));
+      // Sync live execution output to Preview pane and local preview server
+      setPreviewDoc(
+        buildWebPreviewDoc(files, activeFile, true, locale, {
+          baseHref: `/preview/${previewId}/`,
+          execResult: res,
+        })
+      );
       setPreviewRev((n) => n + 1);
+      syncPreviewSnapshot(files, activeFile, res);
 
       if (res.noRun || res.err) {
         appendLog('error', explainRuntimeError(res.err, locale));
@@ -590,7 +711,7 @@ export default function CodeLabIDE() {
         appendLog('warn', res.stderr);
       }
     },
-    [activeFile, activeIsMedia, activeLang, activeCode, activeMeta.runnable, activeMeta.label, files, prefs.showPreview, appendLog, showNotice, locale, t]
+    [activeFile, activeIsMedia, activeLang, activeCode, activeMeta.runnable, activeMeta.label, files, prefs.showPreview, appendLog, showNotice, locale, t, previewId, syncPreviewSnapshot]
   );
 
   // Initial preview & auto-run debounce for web/JS/TS/React/CSS/data projects (even without HTML)
@@ -613,13 +734,15 @@ export default function CodeLabIDE() {
     if (!isWebContext) return;
 
     const timer = setTimeout(() => {
-      const doc = buildWebPreviewDoc(files, activeFile, true, locale);
+      const doc = buildWebPreviewDoc(files, activeFile, true, locale, {
+        baseHref: `/preview/${previewId}/`,
+      });
       setPreviewDoc(doc);
       setPreviewRev((n) => n + 1);
     }, 450);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [files, activeFile, activeLang, activeIsMedia, prefs.autoRun, prefs.showPreview, hydrated, locale]);
+  }, [files, activeFile, activeLang, activeIsMedia, prefs.autoRun, prefs.showPreview, hydrated, locale, previewId]);
 
   const handleSplitGroup = useCallback(
     (sourceGroupId, explicitFile) => {
@@ -1277,9 +1400,12 @@ export default function CodeLabIDE() {
   );
 
   const handleRefreshPreviewFromTerminal = useCallback(() => {
-    const doc = buildWebPreviewDoc(files, activeFile, true, locale);
+    const doc = buildWebPreviewDoc(files, activeFile, true, locale, {
+      baseHref: `/preview/${previewId}/`,
+    });
     setPreviewDoc(doc);
     setPreviewRev((n) => n + 1);
+    syncPreviewSnapshot(files, activeFile, null);
     const isTabletOrMobile = typeof window !== 'undefined' && window.innerWidth < 1024;
     const isPhone = typeof window !== 'undefined' && window.innerWidth < 768;
     setPrefs((p) => ({
@@ -1288,7 +1414,7 @@ export default function CodeLabIDE() {
       ...(isTabletOrMobile ? { showExplorer: false } : {}),
       ...(isPhone ? { showDock: false } : {}),
     }));
-  }, [files, activeFile, locale]);
+  }, [files, activeFile, locale, previewId, syncPreviewSnapshot]);
 
   const handleEditorGroupFocusChange = useCallback((groupId, focused) => {
     if (focused) {
@@ -1410,75 +1536,24 @@ export default function CodeLabIDE() {
     else if (res.out) res.out.trimEnd().split('\n').forEach((l) => appendLog('output', l));
   };
 
-  const [localPreviewUrl, setLocalPreviewUrl] = useState('#');
-
   useEffect(() => {
     if (!hydrated) return;
-    try {
-      const isWebEntry =
-        activeIsMedia ||
-        activeLang === 'html' ||
-        activeLang === 'css' ||
-        activeLang === 'scss' ||
-        activeLang === 'svg' ||
-        activeLang === 'markdown' ||
-        activeLang === 'js' ||
-        activeLang === 'ts' ||
-        activeLang === 'jsx' ||
-        activeLang === 'tsx' ||
-        activeLang === 'json';
+    const timer = setTimeout(() => {
+      syncPreviewSnapshot();
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [hydrated, syncPreviewSnapshot]);
 
-      let url = '#';
-      if (isWebEntry) {
-        const cleanHtml = buildWebPreviewDoc(files, activeFile, false, locale);
-        url = URL.createObjectURL(new Blob([cleanHtml], { type: 'text/html' }));
-      } else {
-        const html = `<!DOCTYPE html>
-<html lang="${locale}" dir="${locale === 'ar' ? 'rtl' : 'ltr'}">
-<head>
-  <meta charset="UTF-8">
-  <title>CodeLab Local Preview — ${activeFile || 'Project'}</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace; background: #1e1e1e; color: #d4d4d4; margin: 0; padding: 32px; }
-    .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #333; padding-bottom: 16px; margin-bottom: 24px; }
-    h1 { font-size: 20px; color: #4ec9b0; margin: 0; display: flex; align-items: center; gap: 8px; }
-    .badge { background: #007acc; color: #fff; padding: 3px 10px; border-radius: 4px; font-size: 12px; font-family: monospace; }
-    .card { background: #252526; border: 1px solid #3c3c3c; border-radius: 6px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
-    h3 { font-size: 14px; color: #9cdcfe; margin-top: 0; margin-bottom: 10px; }
-    pre { background: #1e1e1e; color: #ce9178; padding: 16px; border-radius: 4px; border: 1px solid #333; overflow-x: auto; font-family: ui-monospace, monospace; font-size: 13px; line-height: 1.5; margin: 0; }
-    .footer { font-size: 12px; color: #858585; text-align: center; margin-top: 32px; }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <h1><span>⚡ CodeLab Local Preview Sandbox</span></h1>
-    <span class="badge">${activeFile || 'untitled'} (${activeLang.toUpperCase()})</span>
-  </div>
-  <div class="card">
-    <h3>Active File Source Code:</h3>
-    <pre>${(activeCode || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
-  </div>
-  <div class="card">
-    <h3>Local Execution & Testing Status:</h3>
-    <pre style="color: #4ec9b0;">✔ Local preview URL generated successfully.\n✔ Language: ${activeLang.toUpperCase()}\n✔ To execute code and run live terminal outputs, use CodeLab IDE Run & Debug button (Ctrl+Enter).</pre>
-  </div>
-  <div class="footer">
-    Generated locally by CodeLab Pro IDE — Offline Browser Development Environment
-  </div>
-</body>
-</html>`;
-        url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+  useEffect(() => {
+    if (!hydrated || typeof BroadcastChannel === 'undefined') return;
+    const ch = new BroadcastChannel('codelab-preview-sync');
+    ch.onmessage = (ev) => {
+      if (ev.data?.type === 'request-sync' && ev.data?.id === previewId) {
+        syncPreviewSnapshot();
       }
-      setLocalPreviewUrl(url);
-      return () => {
-        if (url && url !== '#') {
-          URL.revokeObjectURL(url);
-        }
-      };
-    } catch {
-      setLocalPreviewUrl('#');
-    }
-  }, [hydrated, previewDoc, activeLang, activeCode, activeFile, files, activeIsMedia, locale]);
+    };
+    return () => ch.close();
+  }, [hydrated, previewId, syncPreviewSnapshot]);
 
   const paletteCommands = useMemo(
     () => [
@@ -1592,6 +1667,14 @@ export default function CodeLabIDE() {
   const showPreviewPane = prefs.showPreview && !focusMode && !typingFullMobile;
   const showDockPane = prefs.showDock && !focusMode && !typingFullMobile;
 
+  const activePreviewHtml = useMemo(() => {
+    if (previewDoc) return previewDoc;
+    if (!showPreviewPane) return '';
+    return buildWebPreviewDoc(files, activeFile, true, locale, {
+      baseHref: `/preview/${previewId}/`,
+    });
+  }, [previewDoc, showPreviewPane, files, activeFile, locale, previewId]);
+
   return (
     <I18nProvider locale={locale}>
     <div
@@ -1649,8 +1732,8 @@ export default function CodeLabIDE() {
 
       {/* VS Code Title Bar */}
       {showHeaderFull && (
-      <header className="h-10 shrink-0 flex items-center justify-between gap-4 sm:gap-6 px-3 sm:px-4 border-b border-[#d4d4d4] dark:border-[#2b2b2b] bg-[#dddddd] dark:bg-[#323233]">
-        <div className="flex items-center gap-2.5 whitespace-nowrap shrink-0">
+      <header className="h-10 shrink-0 flex items-center justify-between gap-2 sm:gap-6 px-2.5 sm:px-4 border-b border-[#d4d4d4] dark:border-[#2b2b2b] bg-[#dddddd] dark:bg-[#323233]">
+        <div className="flex items-center gap-2 sm:gap-2.5 whitespace-nowrap shrink-0">
           <img
             src="/codelab-logo.png"
             alt={t('brandName')}
@@ -1664,11 +1747,11 @@ export default function CodeLabIDE() {
           </span>
         </div>
 
-        <nav className="flex items-center gap-3.5 sm:gap-5 text-xs font-medium text-[#333333] dark:text-[#cccccc] overflow-x-auto no-scrollbar">
+        <nav className="flex items-center gap-2.5 sm:gap-5 text-xs font-medium text-[#333333] dark:text-[#cccccc] overflow-x-auto no-scrollbar min-w-0">
           <button
             type="button"
             onClick={() => editorApiRef.current?.focus()}
-            className="hover:text-[#000000] dark:hover:text-white transition-colors whitespace-nowrap shrink-0"
+            className="hidden sm:inline-block hover:text-[#000000] dark:hover:text-white transition-colors whitespace-nowrap shrink-0"
           >
             {t('navEditor')}
           </button>
@@ -1689,13 +1772,13 @@ export default function CodeLabIDE() {
           <button
             type="button"
             onClick={() => setShortcutsOpen(true)}
-            className="hover:text-[#000000] dark:hover:text-white transition-colors whitespace-nowrap shrink-0"
+            className="hidden sm:inline-block hover:text-[#000000] dark:hover:text-white transition-colors whitespace-nowrap shrink-0"
           >
             {t('navShortcuts')}
           </button>
         </nav>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <PWAInstallButton />
           <button
             type="button"
@@ -1735,6 +1818,10 @@ export default function CodeLabIDE() {
               type="button"
               title={t('terminalPanelTitle')}
               onClick={() => {
+                if (prefs.showDock && dockTab !== 'terminal') {
+                  setDockTab('terminal');
+                  return;
+                }
                 if (!prefs.showDock) setDockTab('terminal');
                 toggleDock();
               }}
@@ -2148,6 +2235,10 @@ export default function CodeLabIDE() {
                 type="button"
                 title={t('integratedTerminalTitle')}
                 onClick={() => {
+                  if (prefs.showDock && dockTab !== 'terminal') {
+                    setDockTab('terminal');
+                    return;
+                  }
                   setDockTab('terminal');
                   toggleDock();
                 }}
@@ -2598,11 +2689,11 @@ export default function CodeLabIDE() {
                 <button
                   type="button"
                   title={t('copyPreviewLink')}
-                  onClick={() => {
-                    if (localPreviewUrl && localPreviewUrl !== '#') {
-                      navigator.clipboard.writeText(localPreviewUrl);
-                      showNotice(t('previewUrlCopied'));
-                    }
+                  onPointerDown={() => syncPreviewSnapshot()}
+                  onClick={async () => {
+                    syncPreviewSnapshot();
+                    const ok = await copyTextSafely(localPreviewUrl);
+                    if (ok) showNotice(t('previewUrlCopied'));
                   }}
                   className="p-1.5 rounded text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
@@ -2612,6 +2703,7 @@ export default function CodeLabIDE() {
                   href={localPreviewUrl}
                   target="_blank"
                   rel="noopener noreferrer"
+                  onPointerDown={() => syncPreviewSnapshot()}
                   title={t('localPreviewLink')}
                   className="p-1.5 rounded text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
@@ -2639,12 +2731,55 @@ export default function CodeLabIDE() {
               </div>
             </div>
 
+            <div
+              dir="ltr"
+              className="h-8 shrink-0 flex items-center gap-1.5 px-2.5 border-b border-[#e5e5e5] dark:border-[#2b2b2b] bg-[#f8f9fa] dark:bg-[#1e1e1e]"
+            >
+              <Globe className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+              <a
+                href={localPreviewUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onPointerDown={() => syncPreviewSnapshot()}
+                title={t('openLocalUrl')}
+                data-testid="local-preview-url"
+                className="font-mono text-[11px] text-sky-600 dark:text-sky-400 hover:underline truncate flex-1 min-w-0"
+              >
+                {localPreviewUrl}
+              </a>
+              <button
+                type="button"
+                onPointerDown={() => syncPreviewSnapshot()}
+                onClick={async () => {
+                  syncPreviewSnapshot();
+                  const ok = await copyTextSafely(localPreviewUrl);
+                  if (ok) showNotice(t('previewUrlCopied'));
+                }}
+                title={t('copyPreviewLink')}
+                className="p-1 rounded text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800 shrink-0"
+              >
+                <Copy className="w-3 h-3" />
+              </button>
+              <a
+                href={localPreviewUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                onPointerDown={() => syncPreviewSnapshot()}
+                title={t('openLocalUrl')}
+                data-testid="open-local-preview-btn"
+                className="px-2 py-0.5 rounded bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-medium shrink-0 inline-flex items-center gap-1 transition-colors"
+              >
+                <ExternalLink className="w-3 h-3" />
+                <span>{t('openLocalUrl')}</span>
+              </a>
+            </div>
+
             <div className="flex-1 min-h-0 p-2 sm:p-3 flex items-center justify-center overflow-auto bg-slate-200/70 dark:bg-[#090d16]">
               <iframe
                 key={previewRev}
                 title={t('livePreview')}
-                sandbox="allow-scripts allow-modals"
-                srcDoc={previewDoc || buildWebPreviewDoc(files, activeFile, true, locale)}
+                sandbox="allow-scripts allow-modals allow-forms allow-popups"
+                srcDoc={activePreviewHtml}
                 className="h-full bg-white rounded-lg border border-slate-300 dark:border-slate-700 shadow-sm transition-all"
                 style={{
                   width:
@@ -2772,7 +2907,15 @@ export default function CodeLabIDE() {
         onLoadTemplate={handleLoadTemplate}
       />
       <ShortcutsModal open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
-      <CodeReviewModal open={reviewOpen} onClose={() => setReviewOpen(false)} files={files} onSelectFile={handleSelectFile} />
+      <CodeReviewModal
+        open={reviewOpen}
+        onClose={() => setReviewOpen(false)}
+        files={files}
+        onSelectFile={(path, line) => {
+          handleSelectFile(path);
+          if (line) setTimeout(() => editorApiRef.current?.jumpToLine(line), 60);
+        }}
+      />
       <QuickOpenModal open={quickOpenOpen} onClose={() => setQuickOpenOpen(false)} files={files} onSelectFile={handleSelectFile} />
       <GitHubPushModal
         open={githubOpen}
@@ -2785,6 +2928,10 @@ export default function CodeLabIDE() {
         changes={githubChanges}
         onConnectGitHub={handleConnectGitHub}
         onDisconnectGitHub={handleDisconnectGitHub}
+        onSessionExpired={() => {
+          setGithubSessionToken(null);
+          setGithubUser(null);
+        }}
         onConnectSuccess={(token, user) => {
           setGithubSessionToken(token);
           setGithubUser(user);
@@ -2804,6 +2951,25 @@ export default function CodeLabIDE() {
         className="hidden"
         onChange={(e) => {
           handleZipUpload(e.target.files);
+          e.target.value = '';
+        }}
+      />
+      <input
+        id="codelab-local-file-input"
+        type="file"
+        accept=".js,.ts,.jsx,.tsx,.html,.htm,.css,.scss,.py,.json,.sql,.php,.md,.txt,.sh,.yaml,.yml,.xml,.svg,.c,.cpp,.java,.go,.rs,.rb,.dart,.kt,.swift,.cs"
+        className="hidden"
+        onChange={async (e) => {
+          const f = e.target.files?.[0];
+          if (f) {
+            try {
+              const content = await f.text();
+              const fileName = f.name || 'imported.txt';
+              setFiles((prev) => ({ ...prev, [fileName]: content }));
+              setEditorGroups((prev) => openFileInGroup(prev, activeGroupId, fileName));
+              showNotice(t('openedLocalFileNotice', fileName));
+            } catch {}
+          }
           e.target.value = '';
         }}
       />

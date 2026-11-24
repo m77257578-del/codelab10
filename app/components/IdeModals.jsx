@@ -10,8 +10,25 @@ import { useI18n } from '../lib/LocaleContext';
 
 function ModalFrame({ title, onClose, maxWidth = 'max-w-xl', children }) {
   const { t } = useI18n();
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose?.();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/65" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/65"
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      onClick={onClose}
+    >
       <div
         className={`w-full ${maxWidth} rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#0f172a] shadow-2xl overflow-hidden`}
         onClick={(e) => e.stopPropagation()}
@@ -117,6 +134,14 @@ export function LanguagesModal({ open, onClose, onCreateLanguageFile }) {
   const { t, dict } = useI18n();
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
+
+  useEffect(() => {
+    if (open) {
+      setSearch('');
+      setCategory('all');
+    }
+  }, [open]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return ALL_LANGUAGE_OPTIONS.filter((l) => {
@@ -365,13 +390,14 @@ export function CodeReviewModal({ open, onClose, files, onSelectFile }) {
               </div>
             ) : (
               allProblems.map((prob, idx) => (
-                <div
+                <button
                   key={`${prob.file}-${prob.line}-${idx}`}
+                  type="button"
                   onClick={() => {
-                    onSelectFile?.(prob.file);
+                    onSelectFile?.(prob.file, prob.line);
                     onClose();
                   }}
-                  className="group flex items-start justify-between gap-3 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800 hover:border-sky-500 dark:hover:border-sky-500 bg-slate-50 dark:bg-slate-900/60 cursor-pointer transition-colors"
+                  className="w-full text-start group flex items-start justify-between gap-3 p-2.5 rounded-lg border border-slate-100 dark:border-slate-800 hover:border-sky-500 dark:hover:border-sky-500 bg-slate-50 dark:bg-slate-900/60 cursor-pointer transition-colors"
                 >
                   <div className="space-y-1 min-w-0">
                     <div className="flex items-center gap-2 font-mono text-xs text-sky-600 dark:text-sky-400">
@@ -383,7 +409,7 @@ export function CodeReviewModal({ open, onClose, files, onSelectFile }) {
                     <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-mono">{t('fixSuggestion', prob.fix)}</div>
                   </div>
                   <ArrowRight className={`w-4 h-4 text-slate-400 group-hover:text-sky-500 shrink-0 self-center ${locale === 'ar' ? 'rotate-180' : ''}`} />
-                </div>
+                </button>
               ))
             )}
           </div>

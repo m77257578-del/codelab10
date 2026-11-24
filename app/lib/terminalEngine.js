@@ -305,7 +305,7 @@ function readPackageJson(files) {
   }
 }
 
-export function getTerminalCompletions(input, files = {}, cwd = '') {
+export function getTerminalCompletions(input, files = {}, cwd = '', virtualDirs = new Set()) {
   const trimmedStart = input.trimStart();
   const parts = trimmedStart.split(/\s+/);
   const trailingSpace = /\s$/.test(input);
@@ -335,7 +335,7 @@ export function getTerminalCompletions(input, files = {}, cwd = '') {
   const namePrefix = lastSlash >= 0 ? currentArg.slice(lastSlash + 1) : currentArg;
   const targetDir = dirPart ? normalizePath(cwd, dirPart) : cwd;
 
-  const { dirs, files: fileItems } = listDirectory(files, new Set(), targetDir);
+  const { dirs, files: fileItems } = listDirectory(files, virtualDirs, targetDir);
   const candidates = [
     ...dirs.map((d) => (dirPart ? `${dirPart}/${d.name}/` : `${d.name}/`)),
     ...fileItems.map((f) => (dirPart ? `${dirPart}/${f.name}` : f.name)),

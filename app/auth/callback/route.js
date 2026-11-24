@@ -1,6 +1,7 @@
 // GitHub OAuth callback route returning postMessage script to popup opener
 
 import { encryptSession, verifyState } from '../../lib/serverCrypto';
+import { resolveRequestOrigin } from '../../lib/githubPushService';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -47,7 +48,7 @@ export async function GET(req) {
   }
 
   try {
-    const baseUrl = (process.env.APP_URL || url.origin).trim().replace(/\/+$/, '');
+    const baseUrl = resolveRequestOrigin(req);
     const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
       method: 'POST',
       headers: {

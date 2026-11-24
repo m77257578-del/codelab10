@@ -4,6 +4,7 @@ import { transform } from 'sucrase';
 import { isMediaEntry } from './storage';
 import {
   MINI_REACT_RUNTIME,
+  TAILWIND_RUNTIME_SHIM,
   TAILWIND_SHIM_CSS,
   buildEmptyBodyObserver,
   compileWorkspaceBundle,
@@ -33,29 +34,41 @@ export function runMain(src, pre = PRE) {
 export function runWorker(src, ms = 3000, pre = PRE) {
   return new Promise((res) => {
     let w;
+    let blobUrl = null;
+    const cleanup = () => {
+      if (blobUrl) {
+        try {
+          URL.revokeObjectURL(blobUrl);
+        } catch {}
+        blobUrl = null;
+      }
+    };
     try {
-      w = new Worker(
-        URL.createObjectURL(
-          new Blob([
-            `onmessage=()=>{try{postMessage({out:(new Function(${JSON.stringify(pre + src + '\nreturn buf;')}))()})}catch(e){postMessage({err:e.message})}}`,
-          ])
-        )
+      blobUrl = URL.createObjectURL(
+        new Blob([
+          `onmessage=()=>{try{postMessage({out:(new Function(${JSON.stringify(pre + src + '\nreturn buf;')}))()})}catch(e){postMessage({err:e.message})}}`,
+        ])
       );
+      w = new Worker(blobUrl);
     } catch {
+      cleanup();
       return res(runMain(src, pre));
     }
     const t = setTimeout(() => {
       w.terminate();
+      cleanup();
       res({ err: 'الكود يعمل بلا توقف (مهلة 3 ثوانٍ — حلقة لا نهائية؟)' });
     }, ms);
     w.onmessage = (e) => {
       clearTimeout(t);
       w.terminate();
+      cleanup();
       res(e.data);
     };
     w.onerror = () => {
       clearTimeout(t);
       w.terminate();
+      cleanup();
       res(runMain(src, pre));
     };
     w.postMessage(1);
@@ -63,8 +76,18 @@ export function runWorker(src, ms = 3000, pre = PRE) {
 }
 
 // Built-in Python-to-JS engine (instant offline fallback while Pyodide loads)
-const PYPRE =
-  'let buf="";const __r=(x)=>typeof x==="string"?"\'"+x+"\'":__s(x);const __s=(x)=>x===true?"True":x===false?"False":x==null?"None":Array.isArray(x)?"["+x.map(__r).join(", ")+"]":typeof x==="object"?"{"+Object.entries(x).map(([k,v])=>__r(k)+": "+__r(v)).join(", ")+"}":String(x);const print=(...a)=>{buf+=a.map(__s).join(" ")+"\\n"};const __pe=(a,e)=>{buf+=a.map(__s).join(" ")+e};const range=(a,b,c=1)=>{if(b===undefined){b=a;a=0}const o=[];if(c>0)for(let i=a;i<b;i+=c)o.push(i);else for(let i=a;i>b;i+=c)o.push(i);return o};const len=(x)=>x.length;const str=__s;const int=(x)=>Math.trunc(Number(x));const float=Number;const abs=Math.abs;const round=(x,n=0)=>Number(x.toFixed(n));const max=(...a)=>Math.max(...(a.length===1?a[0]:a));const min=(...a)=>Math.min(...(a.length===1?a[0]:a));const sum=(a)=>a.reduce((x,y)=>x+y,0);const sorted=(a)=>[...a].sort((x,y)=>x>y?1:x<y?-1:0);const enumerate=(a)=>[...a].map((x,i)=>[i,x]);const __in=(a,b)=>Array.isArray(b)||typeof b==="string"?b.includes(a):a in b;const __fd=(a,b)=>Math.floor(a/b);const math={...Math,pi:Math.PI};const input=()=>{throw new Error("input() غير مدعوم في وضع التشغيل غير المتزامن")};';
+const buildPyPre = (files = {}) => {
+  const textFiles = {};
+  for (const [k, v] of Object.entries(files || {})) {
+    if (typeof v === 'string') textFiles[k.replace(/^\/+/, '')] = v;
+  }
+  return (
+    `const __files=${JSON.stringify(textFiles)};` +
+    'let buf="";const __r=(x)=>typeof x==="string"?"\'"+x+"\'":__s(x);const __s=(x)=>x===true?"True":x===false?"False":x==null?"None":Array.isArray(x)?"["+x.map(__r).join(", ")+"]":typeof x==="object"?"{"+Object.entries(x).map(([k,v])=>__r(k)+": "+__r(v)).join(", ")+"}":String(x);const print=(...a)=>{buf+=a.map(__s).join(" ")+"\\n"};const __pe=(a,e)=>{buf+=a.map(__s).join(" ")+e};const range=(a,b,c=1)=>{if(b===undefined){b=a;a=0}const o=[];if(c>0)for(let i=a;i<b;i+=c)o.push(i);else for(let i=a;i>b;i+=c)o.push(i);return o};const len=(x)=>x.length;const str=__s;const int=(x)=>Math.trunc(Number(x));const float=Number;const abs=Math.abs;const round=(x,n=0)=>Number(x.toFixed(n));const max=(...a)=>Math.max(...(a.length===1?a[0]:a));const min=(...a)=>Math.min(...(a.length===1?a[0]:a));const sum=(a)=>a.reduce((x,y)=>x+y,0);const sorted=(a)=>[...a].sort((x,y)=>x>y?1:x<y?-1:0);const enumerate=(a)=>[...a].map((x,i)=>[i,x]);const __in=(a,b)=>Array.isArray(b)||typeof b==="string"?b.includes(a):a in b;const __fd=(a,b)=>Math.floor(a/b);const math={...Math,pi:Math.PI};const json={load:(f)=>JSON.parse(typeof f==="string"?f:f.read()),loads:(s)=>JSON.parse(String(s)),dumps:(v)=>JSON.stringify(v)};const open=(path,mode="r")=>{const clean=String(path||"").replace(/^\\.?\\//,"");if(!(clean in __files))throw new Error("FileNotFoundError: "+clean);const txt=__files[clean];return{read:()=>txt,readlines:()=>txt.split(/\\r?\\n/),close:()=>{},__enter__:function(){return this},__exit__:()=>{}}};const input=()=>{throw new Error("input() غير مدعوم في وضع التشغيل غير المتزامن")};'
+  );
+};
+
+const PYPRE = buildPyPre({});
 
 function tern(e) {
   let d = 0;
@@ -83,17 +106,53 @@ function tern(e) {
   return e.replace(/\(([^()]*)\)/g, (m, g) => '(' + tern(g) + ')');
 }
 
-function pyToJS(src) {
+function resolvePythonWorkspaceImports(src, files = {}, visited = new Set()) {
+  if (!files || typeof files !== 'object') return src;
+  const lines = src.replace(/\r/g, '').split('\n');
+  const out = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const fromMatch = trimmed.match(/^from\s+([A-Za-z_][\w.]*)\s+import\s+.+$/);
+    const importMatch = trimmed.match(/^import\s+([A-Za-z_][\w.]*)(?:\s+as\s+\w+)?$/);
+    const modName = fromMatch?.[1] || importMatch?.[1];
+    if (modName) {
+      const candidatePath = `${modName.replace(/\./g, '/')}.py`;
+      const modSrc = files[candidatePath] ?? files[`./${candidatePath}`];
+      if (typeof modSrc === 'string' && !visited.has(candidatePath)) {
+        visited.add(candidatePath);
+        out.push(resolvePythonWorkspaceImports(modSrc, files, visited));
+        continue;
+      }
+    }
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
+function pyToJS(src, files = {}) {
+  const mergedSrc = resolvePythonWorkspaceImports(src, files);
   const STR = /([fFrRbB]?(?:"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'))/g;
   const OP = '(?:[\\w.\\u0001\\u0002]+(?:\\([^()]*\\))?|\\([^()]*\\))';
   const O1 = '[\\w.\\u0001\\u0002]+';
+
   const conv = (e) => {
     const strs = [];
     let t = e.replace(STR, (m) => {
       strs.push(m);
       return '\u0001' + (strs.length - 1) + '\u0002';
     });
+
+    // Basic list comprehensions: [expr for var in iter] or [expr for var in iter if cond]
+    t = t.replace(/\[([^\[\]]+?)\s+for\s+([A-Za-z_]\w*)\s+in\s+([^\[\]]+?)(?:\s+if\s+([^\[\]]+?))?\]/g, (_, expr, v, iter, cond) => {
+      const iterClean = iter.trim();
+      const exprClean = expr.trim();
+      return cond
+        ? `(${iterClean}).filter((${v}) => (${cond.trim()})).map((${v}) => (${exprClean}))`
+        : `(${iterClean}).map((${v}) => (${exprClean}))`;
+    });
+
     t = t
+      .replace(/\b(\w+)\s*\*\*\s*([\w.()]+)/g, 'Math.pow($1, $2)')
       .replace(new RegExp(`(${O1})\\s+not\\s+in\\s+(\\[[^\\]]*\\])`, 'g'), '!__in($1, $2)')
       .replace(new RegExp(`(${O1})\\s+in\\s+(\\[[^\\]]*\\])`, 'g'), '__in($1, $2)')
       .replace(new RegExp(`(${O1})\\s+not\\s+in\\s+(${O1})`, 'g'), '!__in($1, $2)')
@@ -181,10 +240,19 @@ function pyToJS(src) {
     }
     return `${conv(t)};`;
   };
+  // Strip Python triple-quoted strings cleanly so multi-line docstrings don't break indentation tracking
+  const sanitized = mergedSrc
+    .replace(/\r/g, '')
+    .replace(/\t/g, '    ')
+    .replace(/([rRbBfF]?(?:"""[\s\S]*?"""|'''[\s\S]*?'''))/g, (m) => {
+      const linesCount = m.split('\n').length;
+      return JSON.stringify(m.slice(m.indexOf(m[0] === '"' || m[0] === "'" ? m[0] : m[1]) + 3, -3)) + '\n'.repeat(Math.max(0, linesCount - 1));
+    });
+
   const out = [];
   const stack = [0];
   let open = false;
-  for (const raw of src.replace(/\r/g, '').replace(/\t/g, '    ').split('\n')) {
+  for (const raw of sanitized.split('\n')) {
     const ln = cutComment(raw).replace(/\s+$/, '');
     if (!ln.trim()) continue;
     const ind = ln.match(/^ */)[0].length;
@@ -199,7 +267,7 @@ function pyToJS(src) {
       out.push('}');
     }
     if (ind !== stack[stack.length - 1]) throw new Error('IndentationError: إزاحة غير متناسقة');
-    const m = t.match(/^(if|elif|else|while|for|def|try|except|finally)\b/);
+    const m = t.match(/^(if|elif|else|while|for|def|try|except|finally|with)\b/);
     if (!m) {
       out.push(stmt(t));
       continue;
@@ -217,10 +285,19 @@ function pyToJS(src) {
     else if (kw === 'try') js = 'try {';
     else if (kw === 'finally') js = 'finally {';
     else if (kw === 'except') js = 'catch (__e) {';
-    else if (kw === 'def') {
-      const d = head.match(/^def\s+(\w+)\s*\((.*)\)$/);
+    else if (kw === 'with') {
+      const wm = head.match(/^with\s+(.+?)(?:\s+as\s+([A-Za-z_]\w*))?$/);
+      if (!wm) throw new Error('SyntaxError: صيغة with غير صحيحة');
+      const exprJs = conv(wm[1].replace(/\bopen\(([^)]*),\s*encoding\s*=\s*[^,)]+([^)]*)\)/g, 'open($1$2)'));
+      js = wm[2] ? `{ var ${wm[2]} = ${exprJs};` : `{ ${exprJs};`;
+    } else if (kw === 'def') {
+      const d = head.match(/^def\s+(\w+)\s*\((.*)\)(?:\s*->\s*[\s\S]+)?$/);
       if (!d) throw new Error('SyntaxError: تعريف دالة غير صحيح');
-      js = `function ${d[1]}(${d[2]}) {`;
+      const cleanParams = d[2]
+        .split(',')
+        .map((p) => p.trim().replace(/\s*:\s*[^=]+/, '').trim())
+        .join(', ');
+      js = `function ${d[1]}(${cleanParams}) {`;
     } else {
       const f = head.match(/^for\s+(.+?)\s+in\s+(.+)$/);
       if (!f) throw new Error('SyntaxError: حلقة for غير صحيحة');
@@ -325,26 +402,58 @@ export async function runPy(code, files = {}) {
       return { err: String(e.message).split('\n').filter(Boolean).slice(-1)[0] };
     }
   }
-  getPy().catch(() => {});
+  if (typeof document !== 'undefined') {
+    getPy().catch(() => {});
+  }
   let js;
   try {
-    js = pyToJS(code);
+    js = pyToJS(code, files);
   } catch (e) {
     return { noRun: true, err: e.message };
   }
-  return { ...(await runWorker(js, 3000, PYPRE)), internal: true };
+  return { ...(await runWorker(js, 3000, buildPyPre(files))), internal: true };
 }
 
-function toJS(code, lang) {
+function stripOuterJavaClass(src) {
+  const m = src.match(/public\s+class\s+\w+\s*\{/) || src.match(/class\s+\w+\s*\{/);
+  if (!m || m.index === undefined) return src;
+  const openIdx = m.index + m[0].length - 1;
+  let depth = 1;
+  let inStr = '';
+  let closeIdx = -1;
+  for (let i = openIdx + 1; i < src.length; i++) {
+    const ch = src[i];
+    if (inStr) {
+      if (ch === '\\') i++;
+      else if (ch === inStr) inStr = '';
+    } else if (ch === '"' || ch === "'") {
+      inStr = ch;
+    } else if (ch === '{') {
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        closeIdx = i;
+        break;
+      }
+    }
+  }
+  if (closeIdx === -1) return src.slice(0, m.index) + src.slice(openIdx + 1);
+  return src.slice(0, m.index) + src.slice(openIdx + 1, closeIdx) + src.slice(closeIdx + 1);
+}
+
+export function toJS(code, lang) {
+  const strs = [];
   let s = code
-    .replace(/\/\/.*$/gm, '')
+    .replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, (m) => {
+      strs.push(m);
+      return `__STR_${strs.length - 1}__`;
+    })
+    .replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')
     .replace(/#include.*|using namespace.*|^\s*import .*;|^\s*package .*;/gm, '')
     .replace(/std::/g, '');
   if (lang === 'java') {
-    s = s
-      .replace(/(public\s+)?class\s+\w+\s*\{/, '')
-      .replace(/\}\s*$/, '')
-      .replace(/(public\s+)?static\s+void\s+main\s*\([^)]*\)/, 'function main()');
+    s = stripOuterJavaClass(s).replace(/(public\s+)?static\s+void\s+main\s*\([^)]*\)/, 'function main()');
   } else {
     s = s.replace(/int\s+main\s*\(\s*\)/, 'function main()');
   }
@@ -362,7 +471,10 @@ function toJS(code, lang) {
       .join(', ')});`
   );
   s = s.replace(/System\.out\.println\(/g, '__l(').replace(/System\.out\.print\(/g, '__w(');
-  s = s.replace(/(\b\w+\b)\s*\/\s*(\b\w+\b)/g, 'Math.trunc($1 / $2)');
+  s = s.replace(/(?<![.\w])(\d+|[A-Za-z_]\w*)\s*\/\s*(\d+|[A-Za-z_]\w*)(?![.\w])/g, (m, a, b) => {
+    return /^\d+$/.test(a) || /^\d+$/.test(b) ? `Math.trunc(${a} / ${b})` : `(${a} / ${b})`;
+  });
+  s = s.replace(/__STR_(\d+)__/g, (_, idx) => strs[Number(idx)] ?? '');
   return /function main\(/.test(s) ? s + '\nmain();' : s;
 }
 
@@ -799,13 +911,18 @@ function phpToJS(code) {
         i++;
       }
       if (q === '"') {
-        const inner = s
-          .slice(1, -1)
-          .replace(/`/g, '\\`')
-          .replace(/\{\$(\w+(?:\[[^\]]+\])?)\}|(?<!\\)\$(\w+)/g, (_, braced, simple) => '${$' + (braced || simple) + '}');
-        tokens.push('`' + inner + '`');
+        const body = s.slice(1, -1);
+        const hasInterpolation = /\{\$(\w+(?:\[[^\]]+\])?)\}|(?<!\\)\$(\w+)/.test(body);
+        if (hasInterpolation) {
+          const inner = body
+            .replace(/`/g, '\\`')
+            .replace(/\{\$(\w+(?:\[[^\]]+\])?)\}|(?<!\\)\$(\w+)/g, (_, braced, simple) => '${$' + (braced || simple) + '}');
+          tokens.push('`' + inner + '`');
+        } else {
+          tokens.push(s.replace(/\r/g, '').replace(/\n/g, '\\n'));
+        }
       } else {
-        tokens.push(s);
+        tokens.push(s.replace(/\r/g, '').replace(/\n/g, '\\n'));
       }
       out += `\u0001${tokens.length - 1}\u0002`;
       continue;
@@ -831,13 +948,13 @@ function phpToJS(code) {
     .replace(/foreach\s*\(\s*([^)]+?)\s+as\s+(\$\w+)\s*=>\s*(\$\w+)\s*\)/g, 'for (let [$2, $3] of __entries($1))')
     .replace(/foreach\s*\(\s*([^)]+?)\s+as\s+(\$\w+)\s*\)/g, 'for (let $2 of __vals($1))');
 
-  // Convert .= and string concatenation . outside decimal numbers
+  // Convert .= and string concatenation . outside decimal numbers and object property access
   out = out
     .replace(/\.=/g, '+=')
     .replace(/->/g, '.')
-    .replace(/([^\d\s])\s*\.\s*([^\d\s])/g, '$1 + $2')
-    .replace(/(\))\s*\.\s*/g, '$1 + ')
-    .replace(/\s*\.\s*(\()/g, ' + $1');
+    .replace(/\s+\.\s+/g, ' + ')
+    .replace(/(\u0002|\))\s*\.\s*/g, '$1 + ')
+    .replace(/\s*\.\s*(\u0001|\(|\$\w+)/g, ' + $1');
 
   // Convert echo / print statements
   out = out
@@ -1014,6 +1131,7 @@ export function buildWebPreviewDoc(files, activeFile = '', injectBridge = true, 
 
   const hasTailwind = detectTailwindUsage(safeFiles);
   const tailwindCssTag = hasTailwind ? `<style data-codelab-tw="true">${TAILWIND_SHIM_CSS}</style>` : '';
+  const baseTag = options?.baseHref ? `<base href="${escapeHtml(options.baseHref)}">` : '';
 
   // No HTML file in workspace: bundle JS/TS/JSX/TSX/React/CSS directly and link all workspace files cleanly
   if (!htmlPath) {
@@ -1082,7 +1200,7 @@ export function buildWebPreviewDoc(files, activeFile = '', injectBridge = true, 
       const mergedCss = [workspaceStyles, extraCss].filter(Boolean).join('\n');
       const baseStyles = `body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#ffffff;color:#0f172a;min-height:100vh}*,*::before,*::after{box-sizing:border-box}`;
 
-      return `<!DOCTYPE html><html dir="${dir}"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${escapeHtml(scriptEntry)}</title>${bridge}<style>${baseStyles}</style>${tailwindCssTag}${mergedCss ? `<style>${mergedCss}</style>` : ''}${reactScript}</head><body><div id="root"></div><div id="app"></div>${preludeScript ? preludeScript + '\n' : ''}${runtimeScript}${emptyObserver}</body></html>`;
+      return `<!DOCTYPE html><html dir="${dir}"><head><meta charset="UTF-8">${baseTag}<meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${escapeHtml(scriptEntry)}</title>${bridge}<style>${baseStyles}</style>${tailwindCssTag}${TAILWIND_RUNTIME_SHIM}${mergedCss ? `<style>${mergedCss}</style>` : ''}${reactScript}</head><body><div id="root"></div><div id="app"></div>${preludeScript ? preludeScript + '\n' : ''}${runtimeScript}${emptyObserver}</body></html>`;
     }
 
     const previewTitle = escapeHtml(activeFile || (isEn ? 'Workspace Preview' : 'معاينة الملف'));
@@ -1222,8 +1340,10 @@ export function buildWebPreviewDoc(files, activeFile = '', injectBridge = true, 
 
   const usesRemoteTailwind = /cdn\.tailwindcss\.com/i.test(html);
   const headInjections = [
+    baseTag,
     bridge,
     hasTailwind && !usesRemoteTailwind ? tailwindCssTag : '',
+    !usesRemoteTailwind && (hasTailwind || needsReactRuntime) ? TAILWIND_RUNTIME_SHIM : '',
     bundledStyles.length ? `<style>${bundledStyles.join('\n')}</style>` : '',
     needsReactRuntime ? MINI_REACT_RUNTIME : '',
   ]
