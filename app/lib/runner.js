@@ -1057,322 +1057,329 @@ export function resolvePreviewTarget(files, activeFile = '') {
 
 // Resolve local CSS, JS/TS/JSX/TSX, and Media assets (images, videos, audio, SVG) against workspace files
 export function buildWebPreviewDoc(files, activeFile = '', injectBridge = true, locale = 'ar', options = {}) {
-  const dir = locale === 'en' ? 'ltr' : 'rtl';
-  const isEn = locale === 'en';
-  const safeFiles = files && typeof files === 'object' ? files : {};
+  try {
+    const dir = locale === 'en' ? 'ltr' : 'rtl';
+    const isEn = locale === 'en';
+    const safeFiles = files && typeof files === 'object' ? files : {};
 
-  const resolveEntry = (refPath) => {
-    if (!refPath || /^(https?:|data:|blob:|mailto:|#)/i.test(refPath)) return null;
-    const clean = refPath.split('?')[0].split('#')[0].replace(/^\.\//, '').replace(/^\//, '');
-    if (safeFiles[clean] !== undefined) return { path: clean, entry: safeFiles[clean] };
-    const match = Object.keys(safeFiles).find((k) => k === clean || k.endsWith('/' + clean));
-    return match ? { path: match, entry: safeFiles[match] } : null;
-  };
+    const resolveEntry = (refPath) => {
+      if (!refPath || /^(https?:|data:|blob:|mailto:|#)/i.test(refPath)) return null;
+      const clean = refPath.split('?')[0].split('#')[0].replace(/^\.\//, '').replace(/^\//, '');
+      if (safeFiles[clean] !== undefined) return { path: clean, entry: safeFiles[clean] };
+      const match = Object.keys(safeFiles).find((k) => k === clean || k.endsWith('/' + clean));
+      return match ? { path: match, entry: safeFiles[match] } : null;
+    };
 
-  const resolveMediaUrl = (refPath) => {
-    const found = resolveEntry(refPath);
-    if (!found) return null;
-    if (isMediaEntry(found.entry)) return found.entry.dataUrl;
-    if (/\.svg$/i.test(found.path) && typeof found.entry === 'string') {
-      return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(found.entry)}`;
+    const resolveMediaUrl = (refPath) => {
+      const found = resolveEntry(refPath);
+      if (!found) return null;
+      if (isMediaEntry(found.entry)) return found.entry.dataUrl;
+      if (/\.svg$/i.test(found.path) && typeof found.entry === 'string') {
+        return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(found.entry)}`;
+      }
+      return null;
+    };
+
+    const resolveCssUrls = (cssText) =>
+      String(cssText || '').replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi, (full, q, ref) => {
+        const url = resolveMediaUrl(ref);
+        return url ? `url("${url}")` : full;
+      });
+
+    const bridge = injectBridge ? CONSOLE_BRIDGE : LOCAL_LOG_BUFFER;
+    const activeExt = (activeFile || '').split('.').pop()?.toLowerCase() || '';
+    const activeEntry = safeFiles[activeFile];
+
+    // Direct preview when viewing a media file or SVG
+    if (isMediaEntry(activeEntry)) {
+      const kind = activeEntry.mime?.split('/')[0];
+      const body =
+        kind === 'image'
+          ? `<img src="${activeEntry.dataUrl}" alt="${escapeHtml(activeFile)}" style="max-width:100%;max-height:90vh;border-radius:8px;object-fit:contain;" />`
+          : kind === 'video'
+            ? `<video src="${activeEntry.dataUrl}" controls style="max-width:100%;max-height:90vh;border-radius:8px;"></video>`
+            : `<audio src="${activeEntry.dataUrl}" controls style="width:100%;max-width:460px;"></audio>`;
+      return `<!DOCTYPE html><html><body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#090d16;padding:24px;">${body}</body></html>`;
     }
-    return null;
-  };
 
-  const resolveCssUrls = (cssText) =>
-    String(cssText || '').replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi, (full, q, ref) => {
-      const url = resolveMediaUrl(ref);
-      return url ? `url("${url}")` : full;
+    if (activeExt === 'svg' && typeof activeEntry === 'string') {
+      return `<!DOCTYPE html><html><body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#090d16;padding:24px;">${activeEntry}</body></html>`;
+    }
+
+    // Direct preview when viewing Markdown
+    if ((activeExt === 'md' || activeExt === 'markdown') && typeof activeEntry === 'string') {
+      const md = activeEntry
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/^### (.*)$/gm, '<h3>$1</h3>')
+        .replace(/^## (.*)$/gm, '<h2>$1</h2>')
+        .replace(/^# (.*)$/gm, '<h1>$1</h1>')
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/^- (.*)$/gm, '<li>$1</li>')
+        .replace(/\n\n/g, '<br/><br/>');
+      return `<!DOCTYPE html><html dir="${dir}"><head><meta charset="UTF-8"><style>body{font-family:system-ui,sans-serif;max-width:740px;margin:0 auto;padding:28px;line-height:1.75;color:#0f172a;background:#fff}code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:monospace}h1,h2,h3{margin-top:1.4em}</style></head><body>${md}</body></html>`;
+    }
+
+    const htmlPath =
+      activeExt === 'html' || activeExt === 'htm'
+        ? activeFile
+        : safeFiles['index.html'] !== undefined
+          ? 'index.html'
+          : Object.keys(safeFiles).find((k) => /^index\.html?$/i.test(k.split('/').pop())) ||
+            Object.keys(safeFiles).find((k) => /\.(html|htm)$/i.test(k));
+
+    const hasTailwind = detectTailwindUsage(safeFiles);
+    const tailwindCssTag = hasTailwind ? `<style data-codelab-tw="true">${TAILWIND_SHIM_CSS}</style>` : '';
+    const baseTag = options?.baseHref ? `<base href="${escapeHtml(options.baseHref)}">` : '';
+
+    // No HTML file in workspace: bundle JS/TS/JSX/TSX/React/CSS directly and link all workspace files cleanly
+    if (!htmlPath) {
+      const scriptEntry = pickScriptEntry(safeFiles, activeFile);
+      const emptyObserver = buildEmptyBodyObserver(scriptEntry || activeFile || 'workspace', locale);
+
+      // Collect workspace stylesheets (all .css/.scss in workspace excluding test/dist files)
+      const workspaceStyles = Object.entries(safeFiles)
+        .filter(([p, v]) => isStyleFile(p) && typeof v === 'string' && !isNonAppWorkspaceFile(p))
+        .map(([p, v]) => `/* ${p} */\n${resolveCssUrls(preprocessCss(v, p))}`)
+        .join('\n');
+
+      // Pure CSS/SCSS preview when no JS/TS/JSX/TSX entry is active or present
+      if (isStyleFile(activeFile) && typeof activeEntry === 'string' && !scriptEntry) {
+        const cssOnly = workspaceStyles || resolveCssUrls(preprocessCss(activeEntry, activeFile));
+        const hTitle = isEn ? 'Live CSS Preview' : 'معاينة تنسيقات CSS الحية';
+        const hSub = isEn
+          ? 'All rules targeting body, headings, buttons, inputs, and .card update here in real time.'
+          : 'تُطبّق قواعد CSS على العناصر هنا مباشرةً دون الحاجة إلى ملف HTML.';
+        const btnA = isEn ? 'Primary Button' : 'زر أساسي';
+        const btnB = isEn ? 'Secondary' : 'زر ثانوي';
+        return `<!DOCTYPE html><html dir="${dir}"><head><meta charset="UTF-8">${bridge}<style>body{font-family:system-ui,sans-serif;margin:0;padding:24px;background:#f8fafc;color:#0f172a}.card{max-width:520px;margin:0 auto;padding:24px;border-radius:12px;background:#fff;border:1px solid #e2e8f0;box-shadow:0 6px 20px rgba(15,23,42,.08)}.actions{display:flex;gap:10px;margin-top:16px}button{padding:9px 16px;border-radius:8px;border:0;background:#0ea5e9;color:#fff;font-weight:600;cursor:pointer}button.secondary{background:#e2e8f0;color:#0f172a}</style><style data-file="${escapeHtml(activeFile)}">${cssOnly}</style></head><body><main class="card container"><h1>${hTitle}</h1><p>${hSub}</p><div class="actions"><button class="btn">${btnA}</button><button class="btn secondary">${btnB}</button></div></main></body></html>`;
+      }
+
+      // JSON structured preview when no JS/React app exists
+      if (activeExt === 'json' && typeof activeEntry === 'string' && !scriptEntry) {
+        let badge = isEn ? 'Valid JSON' : 'JSON صالح';
+        let bodyText = activeEntry;
+        let isErr = false;
+        try {
+          const parsed = JSON.parse(activeEntry);
+          bodyText = JSON.stringify(parsed, null, 2);
+        } catch (e) {
+          isErr = true;
+          badge = isEn ? `Invalid JSON: ${e.message}` : `خطأ JSON: ${e.message}`;
+        }
+        return `<!DOCTYPE html><html dir="${dir}"><head><meta charset="UTF-8">${bridge}<style>body{margin:0;padding:20px;font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0}.head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.tag{font-size:12px;padding:3px 10px;border-radius:999px;background:${isErr ? '#7f1d1d' : '#064e3b'};color:${isErr ? '#fecaca' : '#6ee7b7'}}pre{margin:0;padding:16px;border-radius:10px;background:#020617;border:1px solid #334155;overflow:auto;font-family:ui-monospace,monospace;font-size:12.5px;line-height:1.6}</style></head><body><div class="head"><strong>${escapeHtml(activeFile)}</strong><span class="tag">${escapeHtml(badge)}</span></div><pre dir="ltr">${escapeHtml(bodyText)}</pre></body></html>`;
+      }
+
+      // Live execution output preview for non-browser languages (Python, PHP, SQL, C/C++, Java)
+      if (options?.execResult && !['js', 'ts', 'jsx', 'tsx'].includes(activeExt)) {
+        const exec = options.execResult;
+        const isErr = Boolean(exec.err);
+        const badge = isErr
+          ? isEn ? 'Execution Error' : 'خطأ في التنفيذ'
+          : isEn ? 'Live Execution Output' : 'مخرجات التشغيل الحية';
+        const outText = isErr
+          ? String(exec.err)
+          : (exec.out || '').trimEnd() || (isEn ? '(Finished with no output)' : '(اكتمل التنفيذ بدون مخرجات)');
+        return `<!DOCTYPE html><html dir="${dir}"><head><meta charset="UTF-8">${bridge}<style>body{margin:0;padding:20px;font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0}.card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px}.head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.tag{font-size:12px;padding:3px 10px;border-radius:999px;background:${isErr ? '#7f1d1d' : '#064e3b'};color:${isErr ? '#fecaca' : '#6ee7b7'}}pre{margin:0;padding:14px;border-radius:8px;background:#020617;border:1px solid #334155;font-family:ui-monospace,monospace;font-size:12.5px;line-height:1.6;overflow:auto;white-space:pre-wrap;color:${isErr ? '#fca5a5' : '#4ade80'}}</style></head><body><div class="card"><div class="head"><strong>${escapeHtml(activeFile)}</strong><span class="tag">${escapeHtml(badge)}</span></div><pre dir="ltr">${escapeHtml(outText)}</pre></div></body></html>`;
+      }
+
+      // JS / TS / JSX / TSX / React multi-file app preview without an HTML file
+      if (scriptEntry) {
+        const { runtimeScript, preludeScript, extraCss } = compileWorkspaceBundle(
+          safeFiles,
+          scriptEntry,
+          resolveMediaUrl,
+          resolveCssUrls,
+          { includeSiblingGlobals: true }
+        );
+        const needsReact =
+          /\.(jsx|tsx)$/i.test(scriptEntry) ||
+          Object.entries(safeFiles).some(([p, v]) => typeof v === 'string' && !isNonAppWorkspaceFile(p) && detectJsxOrReact(v, p));
+        const reactScript = needsReact ? MINI_REACT_RUNTIME : '';
+        const mergedCss = [workspaceStyles, extraCss].filter(Boolean).join('\n');
+        const baseStyles = `body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#ffffff;color:#0f172a;min-height:100vh}*,*::before,*::after{box-sizing:border-box}`;
+
+        return `<!DOCTYPE html><html dir="${dir}"><head><meta charset="UTF-8">${baseTag}<meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${escapeHtml(scriptEntry)}</title>${bridge}<style>${baseStyles}</style>${tailwindCssTag}${TAILWIND_RUNTIME_SHIM}${mergedCss ? `<style>${mergedCss}</style>` : ''}${reactScript}</head><body><div id="root"></div><div id="app"></div>${preludeScript ? preludeScript + '\n' : ''}${runtimeScript}${emptyObserver}</body></html>`;
+      }
+
+      const previewTitle = escapeHtml(activeFile || (isEn ? 'Workspace Preview' : 'معاينة الملف'));
+      const previewHint = isEn
+        ? 'Previewing file source. Use Run (Ctrl+Enter) for live execution.'
+        : 'معاينة محتوى الملف. استخدم زر التشغيل (Ctrl+Enter) لعرض ناتج التنفيذ مباشرة.';
+      const contentText = typeof activeEntry === 'string' ? activeEntry : '';
+      return `<!DOCTYPE html><html dir="${dir}"><head><meta charset="UTF-8">${bridge}<style>body{margin:0;padding:20px;font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0}.card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:13px}.hint{font-size:12px;color:#94a3b8;margin:0 0 12px}pre{margin:0;padding:14px;border-radius:8px;background:#020617;border:1px solid #334155;font-family:ui-monospace,monospace;font-size:12.5px;line-height:1.55;overflow:auto;white-space:pre-wrap}</style></head><body><div class="card"><div class="top"><strong>${previewTitle}</strong><span>${escapeHtml(activeExt.toUpperCase() || 'FILE')}</span></div><p class="hint">${previewHint}</p><pre dir="ltr">${escapeHtml(contentText)}</pre></div></body></html>`;
+    }
+
+    let html = typeof safeFiles[htmlPath] === 'string' ? safeFiles[htmlPath] : '';
+    let needsReactRuntime = false;
+    const bundledStyles = [];
+    const linkedPaths = new Set([htmlPath]);
+    let hasLinkedLocalStylesheet = false;
+    let hasAnyLocalOrInlineScript = false;
+    const emptyObserver = buildEmptyBodyObserver(htmlPath || activeFile, locale);
+
+    // Inline local <link rel="stylesheet" href="..."> regardless of attribute order
+    html = html.replace(/<link\b([^>]*)>/gi, (full, attrs) => {
+      if (!/rel=["']?stylesheet["']?/i.test(attrs)) return full;
+      const hrefMatch = attrs.match(/href=["']([^"']+)["']/i);
+      if (!hrefMatch) return full;
+      const href = hrefMatch[1];
+      if (/^https?:\/\//i.test(href)) return full;
+      const found = resolveEntry(href);
+      if (found && typeof found.entry === 'string') {
+        hasLinkedLocalStylesheet = true;
+        linkedPaths.add(found.path);
+        return `<style data-file="${escapeHtml(href)}">\n${resolveCssUrls(preprocessCss(found.entry, found.path))}\n</style>`;
+      }
+      return full;
     });
 
-  const bridge = injectBridge ? CONSOLE_BRIDGE : LOCAL_LOG_BUFFER;
-  const activeExt = (activeFile || '').split('.').pop()?.toLowerCase() || '';
-  const activeEntry = safeFiles[activeFile];
+    // Resolve inline <style> url(...) references
+    html = html.replace(/<style\b([^>]*)>([\s\S]*?)<\/style>/gi, (full, attrs, cssBody) => {
+      return `<style${attrs}>${resolveCssUrls(cssBody)}</style>`;
+    });
 
-  // Direct preview when viewing a media file or SVG
-  if (isMediaEntry(activeEntry)) {
-    const kind = activeEntry.mime?.split('/')[0];
-    const body =
-      kind === 'image'
-        ? `<img src="${activeEntry.dataUrl}" alt="${escapeHtml(activeFile)}" style="max-width:100%;max-height:90vh;border-radius:8px;object-fit:contain;" />`
-        : kind === 'video'
-          ? `<video src="${activeEntry.dataUrl}" controls style="max-width:100%;max-height:90vh;border-radius:8px;"></video>`
-          : `<audio src="${activeEntry.dataUrl}" controls style="width:100%;max-width:460px;"></audio>`;
-    return `<!DOCTYPE html><html><body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#090d16;padding:24px;">${body}</body></html>`;
-  }
+    // Resolve local media src attributes on img, video, audio, source, track
+    html = html.replace(
+      /<(img|video|audio|source|track)\b([^>]*?\s)src=["']([^"']+)["']([^>]*)>/gi,
+      (full, tag, before, src, after) => {
+        const mediaUrl = resolveMediaUrl(src);
+        return mediaUrl ? `<${tag}${before}src="${mediaUrl}"${after}>` : full;
+      }
+    );
 
-  if (activeExt === 'svg' && typeof activeEntry === 'string') {
-    return `<!DOCTYPE html><html><body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#090d16;padding:24px;">${activeEntry}</body></html>`;
-  }
+    // Resolve poster="..." on <video>
+    html = html.replace(/<video\b([^>]*?\s)poster=["']([^"']+)["']([^>]*)>/gi, (full, before, poster, after) => {
+      const mediaUrl = resolveMediaUrl(poster);
+      return mediaUrl ? `<video${before}poster="${mediaUrl}"${after}>` : full;
+    });
 
-  // Direct preview when viewing Markdown
-  if ((activeExt === 'md' || activeExt === 'markdown') && typeof activeEntry === 'string') {
-    const md = activeEntry
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/^### (.*)$/gm, '<h3>$1</h3>')
-      .replace(/^## (.*)$/gm, '<h2>$1</h2>')
-      .replace(/^# (.*)$/gm, '<h1>$1</h1>')
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/`([^`]+)`/g, '<code>$1</code>')
-      .replace(/^- (.*)$/gm, '<li>$1</li>')
-      .replace(/\n\n/g, '<br/><br/>');
-    return `<!DOCTYPE html><html dir="${dir}"><head><meta charset="UTF-8"><style>body{font-family:system-ui,sans-serif;max-width:740px;margin:0 auto;padding:28px;line-height:1.75;color:#0f172a;background:#fff}code{background:#f1f5f9;padding:2px 6px;border-radius:4px;font-family:monospace}h1,h2,h3{margin-top:1.4em}</style></head><body>${md}</body></html>`;
-  }
+    // Inline local <script src="..."> (supports classic JS, ES modules, TS, JSX, TSX)
+    html = html.replace(/<script\b([^>]*)>\s*<\/script>/gi, (full, attrs) => {
+      const srcMatch = attrs.match(/\bsrc=["']([^"']+)["']/i);
+      if (!srcMatch) return full;
+      const src = srcMatch[1];
+      if (/^https?:\/\//i.test(src)) return full;
+      const found = resolveEntry(src);
+      if (!found || typeof found.entry !== 'string') return full;
 
-  const htmlPath =
-    activeExt === 'html' || activeExt === 'htm'
-      ? activeFile
-      : safeFiles['index.html'] !== undefined
-        ? 'index.html'
-        : Object.keys(safeFiles).find((k) => /^index\.html?$/i.test(k.split('/').pop())) ||
-          Object.keys(safeFiles).find((k) => /\.(html|htm)$/i.test(k));
+      hasAnyLocalOrInlineScript = true;
+      linkedPaths.add(found.path);
+      const code = found.entry;
+      const isMod = /\btype=["']?(?:module|text\/babel|text\/jsx|text\/tsx|text\/typescript)["']?/i.test(attrs);
+      const hasImportsOrJsx =
+        isMod ||
+        /\.(ts|tsx|jsx|mjs)$/i.test(found.path) ||
+        /^\s*(?:import|export)\s+/m.test(code) ||
+        detectJsxOrReact(code, found.path);
 
-  const hasTailwind = detectTailwindUsage(safeFiles);
-  const tailwindCssTag = hasTailwind ? `<style data-codelab-tw="true">${TAILWIND_SHIM_CSS}</style>` : '';
-  const baseTag = options?.baseHref ? `<base href="${escapeHtml(options.baseHref)}">` : '';
+      if (hasImportsOrJsx) {
+        if (detectJsxOrReact(code, found.path) || /\.(jsx|tsx)$/i.test(found.path)) {
+          needsReactRuntime = true;
+        }
+        const { runtimeScript, extraCss, bundledPaths } = compileWorkspaceBundle(
+          safeFiles,
+          found.path,
+          resolveMediaUrl,
+          resolveCssUrls,
+          { includeSiblingGlobals: false }
+        );
+        if (bundledPaths) bundledPaths.forEach((p) => linkedPaths.add(p));
+        if (extraCss) bundledStyles.push(extraCss);
+        return runtimeScript;
+      }
 
-  // No HTML file in workspace: bundle JS/TS/JSX/TSX/React/CSS directly and link all workspace files cleanly
-  if (!htmlPath) {
-    const scriptEntry = pickScriptEntry(safeFiles, activeFile);
-    const emptyObserver = buildEmptyBodyObserver(scriptEntry || activeFile || 'workspace', locale);
+      return `<script data-file="${escapeHtml(src)}">\n${escapeInlineScript(transpileClassicScript(code, found.path))}\n<\/script>`;
+    });
 
-    // Collect workspace stylesheets (all .css/.scss in workspace excluding test/dist files)
-    const workspaceStyles = Object.entries(safeFiles)
-      .filter(([p, v]) => isStyleFile(p) && typeof v === 'string' && !isNonAppWorkspaceFile(p))
-      .map(([p, v]) => `/* ${p} */\n${resolveCssUrls(preprocessCss(v, p))}`)
+    // Transpile inline <script> blocks if they use module/JSX/TS syntax
+    html = html.replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, (full, attrs, body) => {
+      if (/\bsrc=/i.test(attrs) || !body.trim()) return full;
+      hasAnyLocalOrInlineScript = true;
+      const explicitType = /\btype=["']?(?:module|text\/babel|text\/jsx|text\/tsx|text\/typescript)["']?/i.test(attrs);
+      const hasJsxOrTs = explicitType || /^\s*(?:import|export)\s+/m.test(body);
+      if (!hasJsxOrTs) return full;
+      if (detectJsxOrReact(body, 'inline.tsx') || /text\/(?:babel|jsx|tsx)/i.test(attrs)) {
+        needsReactRuntime = true;
+      }
+      const transpiled = transpileModuleCode(body, explicitType ? 'inline.tsx' : 'inline.js');
+      return `<script>(()=>{const module={exports:{}};const exports=module.exports;const require=(s)=>s==='react'||s==='react/jsx-runtime'?window.React:s==='react-dom'||s==='react-dom/client'?window.ReactDOM:{};\n${escapeInlineScript(transpiled)}\n})();<\/script>`;
+    });
+
+    // Auto-link workspace CSS when index.html has no local stylesheet link yet
+    if (!hasLinkedLocalStylesheet) {
+      for (const [p, v] of Object.entries(safeFiles)) {
+        if (linkedPaths.has(p) || typeof v !== 'string' || !isStyleFile(p) || isNonAppWorkspaceFile(p)) continue;
+        bundledStyles.push(`/* ${p} */\n${resolveCssUrls(preprocessCss(v, p))}`);
+      }
+    }
+
+    // Auto-link workspace scripts when HTML file has no <script> tags yet
+    let autoBodyScripts = '';
+    if (!hasAnyLocalOrInlineScript) {
+      const scriptEntry = pickScriptEntry(safeFiles, '');
+      if (scriptEntry) {
+        const { runtimeScript, preludeScript, extraCss } = compileWorkspaceBundle(
+          safeFiles,
+          scriptEntry,
+          resolveMediaUrl,
+          resolveCssUrls,
+          { includeSiblingGlobals: true }
+        );
+        if (
+          /\.(jsx|tsx)$/i.test(scriptEntry) ||
+          Object.entries(safeFiles).some(([p, v]) => typeof v === 'string' && !isNonAppWorkspaceFile(p) && detectJsxOrReact(v, p))
+        ) {
+          needsReactRuntime = true;
+        }
+        if (extraCss) bundledStyles.push(extraCss);
+        autoBodyScripts = [preludeScript, runtimeScript].filter(Boolean).join('\n');
+      }
+    }
+
+    const usesRemoteTailwind = /cdn\.tailwindcss\.com/i.test(html);
+    const headInjections = [
+      baseTag,
+      bridge,
+      hasTailwind && !usesRemoteTailwind ? tailwindCssTag : '',
+      !usesRemoteTailwind && (hasTailwind || needsReactRuntime) ? TAILWIND_RUNTIME_SHIM : '',
+      bundledStyles.length ? `<style>${bundledStyles.join('\n')}</style>` : '',
+      needsReactRuntime ? MINI_REACT_RUNTIME : '',
+    ]
+      .filter(Boolean)
       .join('\n');
 
-    // Pure CSS/SCSS preview when no JS/TS/JSX/TSX entry is active or present
-    if (isStyleFile(activeFile) && typeof activeEntry === 'string' && !scriptEntry) {
-      const cssOnly = workspaceStyles || resolveCssUrls(preprocessCss(activeEntry, activeFile));
-      const hTitle = isEn ? 'Live CSS Preview' : 'معاينة تنسيقات CSS الحية';
-      const hSub = isEn
-        ? 'All rules targeting body, headings, buttons, inputs, and .card update here in real time.'
-        : 'تُطبّق قواعد CSS على العناصر هنا مباشرةً دون الحاجة إلى ملف HTML.';
-      const btnA = isEn ? 'Primary Button' : 'زر أساسي';
-      const btnB = isEn ? 'Secondary' : 'زر ثانوي';
-      return `<!DOCTYPE html><html dir="${dir}"><head><meta charset="UTF-8">${bridge}<style>body{font-family:system-ui,sans-serif;margin:0;padding:24px;background:#f8fafc;color:#0f172a}.card{max-width:520px;margin:0 auto;padding:24px;border-radius:12px;background:#fff;border:1px solid #e2e8f0;box-shadow:0 6px 20px rgba(15,23,42,.08)}.actions{display:flex;gap:10px;margin-top:16px}button{padding:9px 16px;border-radius:8px;border:0;background:#0ea5e9;color:#fff;font-weight:600;cursor:pointer}button.secondary{background:#e2e8f0;color:#0f172a}</style><style data-file="${escapeHtml(activeFile)}">${cssOnly}</style></head><body><main class="card container"><h1>${hTitle}</h1><p>${hSub}</p><div class="actions"><button class="btn">${btnA}</button><button class="btn secondary">${btnB}</button></div></main></body></html>`;
+    const bodyEndInjections = [autoBodyScripts, emptyObserver].filter(Boolean).join('\n');
+
+    const hasHtmlTag = /<html\b/i.test(html);
+    const hasBodyTag = /<body\b/i.test(html);
+
+    if (!hasHtmlTag && !hasBodyTag) {
+      html = `<!DOCTYPE html><html dir="${dir}"><head><meta charset="UTF-8">${headInjections}</head><body>${html}${bodyEndInjections}</body></html>`;
+      return html;
     }
 
-    // JSON structured preview when no JS/React app exists
-    if (activeExt === 'json' && typeof activeEntry === 'string' && !scriptEntry) {
-      let badge = isEn ? 'Valid JSON' : 'JSON صالح';
-      let bodyText = activeEntry;
-      let isErr = false;
-      try {
-        const parsed = JSON.parse(activeEntry);
-        bodyText = JSON.stringify(parsed, null, 2);
-      } catch (e) {
-        isErr = true;
-        badge = isEn ? `Invalid JSON: ${e.message}` : `خطأ JSON: ${e.message}`;
-      }
-      return `<!DOCTYPE html><html dir="${dir}"><head><meta charset="UTF-8">${bridge}<style>body{margin:0;padding:20px;font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0}.head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.tag{font-size:12px;padding:3px 10px;border-radius:999px;background:${isErr ? '#7f1d1d' : '#064e3b'};color:${isErr ? '#fecaca' : '#6ee7b7'}}pre{margin:0;padding:16px;border-radius:10px;background:#020617;border:1px solid #334155;overflow:auto;font-family:ui-monospace,monospace;font-size:12.5px;line-height:1.6}</style></head><body><div class="head"><strong>${escapeHtml(activeFile)}</strong><span class="tag">${escapeHtml(badge)}</span></div><pre dir="ltr">${escapeHtml(bodyText)}</pre></body></html>`;
+    if (headInjections) {
+      if (/<head[^>]*>/i.test(html)) html = html.replace(/<head[^>]*>/i, (m) => `${m}\n${headInjections}`);
+      else if (/<html[^>]*>/i.test(html)) html = html.replace(/<html[^>]*>/i, (m) => `${m}\n<head>${headInjections}</head>`);
+      else html = `<head>${headInjections}</head>${html}`;
     }
 
-    // Live execution output preview for non-browser languages (Python, PHP, SQL, C/C++, Java)
-    if (options?.execResult && !['js', 'ts', 'jsx', 'tsx'].includes(activeExt)) {
-      const exec = options.execResult;
-      const isErr = Boolean(exec.err);
-      const badge = isErr
-        ? isEn ? 'Execution Error' : 'خطأ في التنفيذ'
-        : isEn ? 'Live Execution Output' : 'مخرجات التشغيل الحية';
-      const outText = isErr
-        ? String(exec.err)
-        : (exec.out || '').trimEnd() || (isEn ? '(Finished with no output)' : '(اكتمل التنفيذ بدون مخرجات)');
-      return `<!DOCTYPE html><html dir="${dir}"><head><meta charset="UTF-8">${bridge}<style>body{margin:0;padding:20px;font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0}.card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px}.head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}.tag{font-size:12px;padding:3px 10px;border-radius:999px;background:${isErr ? '#7f1d1d' : '#064e3b'};color:${isErr ? '#fecaca' : '#6ee7b7'}}pre{margin:0;padding:14px;border-radius:8px;background:#020617;border:1px solid #334155;font-family:ui-monospace,monospace;font-size:12.5px;line-height:1.6;overflow:auto;white-space:pre-wrap;color:${isErr ? '#fca5a5' : '#4ade80'}}</style></head><body><div class="card"><div class="head"><strong>${escapeHtml(activeFile)}</strong><span class="tag">${escapeHtml(badge)}</span></div><pre dir="ltr">${escapeHtml(outText)}</pre></div></body></html>`;
+    if (!hasBodyTag) {
+      if (/<\/html>/i.test(html)) html = html.replace(/<\/html>/i, `<body>${bodyEndInjections}</body></html>`);
+      else html += `<body>${bodyEndInjections}</body>`;
+    } else if (bodyEndInjections) {
+      if (/<\/body>/i.test(html)) html = html.replace(/<\/body>/i, `${bodyEndInjections}\n</body>`);
+      else html += bodyEndInjections;
     }
 
-    // JS / TS / JSX / TSX / React multi-file app preview without an HTML file
-    if (scriptEntry) {
-      const { runtimeScript, preludeScript, extraCss } = compileWorkspaceBundle(
-        safeFiles,
-        scriptEntry,
-        resolveMediaUrl,
-        resolveCssUrls,
-        { includeSiblingGlobals: true }
-      );
-      const needsReact =
-        /\.(jsx|tsx)$/i.test(scriptEntry) ||
-        Object.entries(safeFiles).some(([p, v]) => typeof v === 'string' && !isNonAppWorkspaceFile(p) && detectJsxOrReact(v, p));
-      const reactScript = needsReact ? MINI_REACT_RUNTIME : '';
-      const mergedCss = [workspaceStyles, extraCss].filter(Boolean).join('\n');
-      const baseStyles = `body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#ffffff;color:#0f172a;min-height:100vh}*,*::before,*::after{box-sizing:border-box}`;
-
-      return `<!DOCTYPE html><html dir="${dir}"><head><meta charset="UTF-8">${baseTag}<meta name="viewport" content="width=device-width,initial-scale=1.0"><title>${escapeHtml(scriptEntry)}</title>${bridge}<style>${baseStyles}</style>${tailwindCssTag}${TAILWIND_RUNTIME_SHIM}${mergedCss ? `<style>${mergedCss}</style>` : ''}${reactScript}</head><body><div id="root"></div><div id="app"></div>${preludeScript ? preludeScript + '\n' : ''}${runtimeScript}${emptyObserver}</body></html>`;
-    }
-
-    const previewTitle = escapeHtml(activeFile || (isEn ? 'Workspace Preview' : 'معاينة الملف'));
-    const previewHint = isEn
-      ? 'Previewing file source. Use Run (Ctrl+Enter) for live execution.'
-      : 'معاينة محتوى الملف. استخدم زر التشغيل (Ctrl+Enter) لعرض ناتج التنفيذ مباشرة.';
-    const contentText = typeof activeEntry === 'string' ? activeEntry : '';
-    return `<!DOCTYPE html><html dir="${dir}"><head><meta charset="UTF-8">${bridge}<style>body{margin:0;padding:20px;font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0}.card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:16px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:13px}.hint{font-size:12px;color:#94a3b8;margin:0 0 12px}pre{margin:0;padding:14px;border-radius:8px;background:#020617;border:1px solid #334155;font-family:ui-monospace,monospace;font-size:12.5px;line-height:1.55;overflow:auto;white-space:pre-wrap}</style></head><body><div class="card"><div class="top"><strong>${previewTitle}</strong><span>${escapeHtml(activeExt.toUpperCase() || 'FILE')}</span></div><p class="hint">${previewHint}</p><pre dir="ltr">${escapeHtml(contentText)}</pre></div></body></html>`;
-  }
-
-  let html = typeof safeFiles[htmlPath] === 'string' ? safeFiles[htmlPath] : '';
-  let needsReactRuntime = false;
-  const bundledStyles = [];
-  const linkedPaths = new Set([htmlPath]);
-  let hasLinkedLocalStylesheet = false;
-  let hasAnyLocalOrInlineScript = false;
-  const emptyObserver = buildEmptyBodyObserver(htmlPath || activeFile, locale);
-
-  // Inline local <link rel="stylesheet" href="..."> regardless of attribute order
-  html = html.replace(/<link\b([^>]*)>/gi, (full, attrs) => {
-    if (!/rel=["']?stylesheet["']?/i.test(attrs)) return full;
-    const hrefMatch = attrs.match(/href=["']([^"']+)["']/i);
-    if (!hrefMatch) return full;
-    const href = hrefMatch[1];
-    if (/^https?:\/\//i.test(href)) return full;
-    const found = resolveEntry(href);
-    if (found && typeof found.entry === 'string') {
-      hasLinkedLocalStylesheet = true;
-      linkedPaths.add(found.path);
-      return `<style data-file="${escapeHtml(href)}">\n${resolveCssUrls(preprocessCss(found.entry, found.path))}\n</style>`;
-    }
-    return full;
-  });
-
-  // Resolve inline <style> url(...) references
-  html = html.replace(/<style\b([^>]*)>([\s\S]*?)<\/style>/gi, (full, attrs, cssBody) => {
-    return `<style${attrs}>${resolveCssUrls(cssBody)}</style>`;
-  });
-
-  // Resolve local media src attributes on img, video, audio, source, track
-  html = html.replace(
-    /<(img|video|audio|source|track)\b([^>]*?\s)src=["']([^"']+)["']([^>]*)>/gi,
-    (full, tag, before, src, after) => {
-      const mediaUrl = resolveMediaUrl(src);
-      return mediaUrl ? `<${tag}${before}src="${mediaUrl}"${after}>` : full;
-    }
-  );
-
-  // Resolve poster="..." on <video>
-  html = html.replace(/<video\b([^>]*?\s)poster=["']([^"']+)["']([^>]*)>/gi, (full, before, poster, after) => {
-    const mediaUrl = resolveMediaUrl(poster);
-    return mediaUrl ? `<video${before}poster="${mediaUrl}"${after}>` : full;
-  });
-
-  // Inline local <script src="..."> (supports classic JS, ES modules, TS, JSX, TSX)
-  html = html.replace(/<script\b([^>]*)>\s*<\/script>/gi, (full, attrs) => {
-    const srcMatch = attrs.match(/\bsrc=["']([^"']+)["']/i);
-    if (!srcMatch) return full;
-    const src = srcMatch[1];
-    if (/^https?:\/\//i.test(src)) return full;
-    const found = resolveEntry(src);
-    if (!found || typeof found.entry !== 'string') return full;
-
-    hasAnyLocalOrInlineScript = true;
-    linkedPaths.add(found.path);
-    const code = found.entry;
-    const isMod = /\btype=["']?(?:module|text\/babel|text\/jsx|text\/tsx|text\/typescript)["']?/i.test(attrs);
-    const hasImportsOrJsx =
-      isMod ||
-      /\.(ts|tsx|jsx|mjs)$/i.test(found.path) ||
-      /^\s*(?:import|export)\s+/m.test(code) ||
-      detectJsxOrReact(code, found.path);
-
-    if (hasImportsOrJsx) {
-      if (detectJsxOrReact(code, found.path) || /\.(jsx|tsx)$/i.test(found.path)) {
-        needsReactRuntime = true;
-      }
-      const { runtimeScript, extraCss, bundledPaths } = compileWorkspaceBundle(
-        safeFiles,
-        found.path,
-        resolveMediaUrl,
-        resolveCssUrls,
-        { includeSiblingGlobals: false }
-      );
-      if (bundledPaths) bundledPaths.forEach((p) => linkedPaths.add(p));
-      if (extraCss) bundledStyles.push(extraCss);
-      return runtimeScript;
-    }
-
-    return `<script data-file="${escapeHtml(src)}">\n${escapeInlineScript(transpileClassicScript(code, found.path))}\n<\/script>`;
-  });
-
-  // Transpile inline <script> blocks if they use module/JSX/TS syntax
-  html = html.replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, (full, attrs, body) => {
-    if (/\bsrc=/i.test(attrs) || !body.trim()) return full;
-    hasAnyLocalOrInlineScript = true;
-    const explicitType = /\btype=["']?(?:module|text\/babel|text\/jsx|text\/tsx|text\/typescript)["']?/i.test(attrs);
-    const hasJsxOrTs = explicitType || /^\s*(?:import|export)\s+/m.test(body);
-    if (!hasJsxOrTs) return full;
-    if (detectJsxOrReact(body, 'inline.tsx') || /text\/(?:babel|jsx|tsx)/i.test(attrs)) {
-      needsReactRuntime = true;
-    }
-    const transpiled = transpileModuleCode(body, explicitType ? 'inline.tsx' : 'inline.js');
-    return `<script>(()=>{const module={exports:{}};const exports=module.exports;const require=(s)=>s==='react'||s==='react/jsx-runtime'?window.React:s==='react-dom'||s==='react-dom/client'?window.ReactDOM:{};\n${escapeInlineScript(transpiled)}\n})();<\/script>`;
-  });
-
-  // Auto-link workspace CSS when index.html has no local stylesheet link yet
-  if (!hasLinkedLocalStylesheet) {
-    for (const [p, v] of Object.entries(safeFiles)) {
-      if (linkedPaths.has(p) || typeof v !== 'string' || !isStyleFile(p) || isNonAppWorkspaceFile(p)) continue;
-      bundledStyles.push(`/* ${p} */\n${resolveCssUrls(preprocessCss(v, p))}`);
-    }
-  }
-
-  // Auto-link workspace scripts when HTML file has no <script> tags yet
-  let autoBodyScripts = '';
-  if (!hasAnyLocalOrInlineScript) {
-    const scriptEntry = pickScriptEntry(safeFiles, '');
-    if (scriptEntry) {
-      const { runtimeScript, preludeScript, extraCss } = compileWorkspaceBundle(
-        safeFiles,
-        scriptEntry,
-        resolveMediaUrl,
-        resolveCssUrls,
-        { includeSiblingGlobals: true }
-      );
-      if (
-        /\.(jsx|tsx)$/i.test(scriptEntry) ||
-        Object.entries(safeFiles).some(([p, v]) => typeof v === 'string' && !isNonAppWorkspaceFile(p) && detectJsxOrReact(v, p))
-      ) {
-        needsReactRuntime = true;
-      }
-      if (extraCss) bundledStyles.push(extraCss);
-      autoBodyScripts = [preludeScript, runtimeScript].filter(Boolean).join('\n');
-    }
-  }
-
-  const usesRemoteTailwind = /cdn\.tailwindcss\.com/i.test(html);
-  const headInjections = [
-    baseTag,
-    bridge,
-    hasTailwind && !usesRemoteTailwind ? tailwindCssTag : '',
-    !usesRemoteTailwind && (hasTailwind || needsReactRuntime) ? TAILWIND_RUNTIME_SHIM : '',
-    bundledStyles.length ? `<style>${bundledStyles.join('\n')}</style>` : '',
-    needsReactRuntime ? MINI_REACT_RUNTIME : '',
-  ]
-    .filter(Boolean)
-    .join('\n');
-
-  const bodyEndInjections = [autoBodyScripts, emptyObserver].filter(Boolean).join('\n');
-
-  const hasHtmlTag = /<html\b/i.test(html);
-  const hasBodyTag = /<body\b/i.test(html);
-
-  if (!hasHtmlTag && !hasBodyTag) {
-    html = `<!DOCTYPE html><html dir="${dir}"><head><meta charset="UTF-8">${headInjections}</head><body>${html}${bodyEndInjections}</body></html>`;
     return html;
+  } catch (err) {
+    const isEn = locale === 'en';
+    const dir = isEn ? 'ltr' : 'rtl';
+    const fileList = Object.keys(files || {}).map((f) => `<li>${escapeHtml(f)}</li>`).join('');
+    return `<!DOCTYPE html><html dir="${dir}"><head><meta charset="UTF-8"><style>body{margin:0;padding:24px;font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0}.card{max-width:600px;margin:40px auto;background:#1e293b;border:1px solid #334155;border-radius:12px;padding:20px}h2{color:#38bdf8;margin-top:0}ul{max-height:200px;overflow:auto;background:#020617;padding:12px;border-radius:8px;border:1px solid #334155}</style></head><body><div class="card"><h2>${isEn ? 'Workspace Preview Ready' : 'معاينة مشروع GitHub جاهزة'}</h2><p>${isEn ? 'Project files loaded successfully. Select an entry file or click Run to execute.' : 'تم تحميل ملفات المستودع بنجاح. اختر ملف البداية أو اضغط تشغيل لعرض الناتج.'}</p><ul>${fileList}</ul></div></body></html>`;
   }
-
-  if (headInjections) {
-    if (/<head[^>]*>/i.test(html)) html = html.replace(/<head[^>]*>/i, (m) => `${m}\n${headInjections}`);
-    else if (/<html[^>]*>/i.test(html)) html = html.replace(/<html[^>]*>/i, (m) => `${m}\n<head>${headInjections}</head>`);
-    else html = `<head>${headInjections}</head>${html}`;
-  }
-
-  if (!hasBodyTag) {
-    if (/<\/html>/i.test(html)) html = html.replace(/<\/html>/i, `<body>${bodyEndInjections}</body></html>`);
-    else html += `<body>${bodyEndInjections}</body>`;
-  } else if (bodyEndInjections) {
-    if (/<\/body>/i.test(html)) html = html.replace(/<\/body>/i, `${bodyEndInjections}\n</body>`);
-    else html += bodyEndInjections;
-  }
-
-  return html;
 }

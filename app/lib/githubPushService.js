@@ -13,8 +13,8 @@ import {
 
 const TRANSIENT_GITHUB_STATUSES = new Set([404, 409, 429, 500, 502, 503, 504]);
 const RETRY_DELAYS_MS = [350, 750, 1400];
-const INLINE_TREE_TEXT_LIMIT = 256 * 1024;
-const BLOB_BATCH_SIZE = 5;
+const INLINE_TREE_TEXT_LIMIT = 50 * 1024 * 1024;
+const BLOB_BATCH_SIZE = 50;
 
 function defaultSleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
